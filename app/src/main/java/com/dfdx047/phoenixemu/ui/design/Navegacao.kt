@@ -77,12 +77,23 @@ object NavegacaoDeLista {
         colunas: Int,
         emGrade: Boolean
     ): Resultado {
-        if (evento.type != KeyEventType.KeyDown || total <= 0) return Resultado(Acao.NADA)
+        if (evento.type != KeyEventType.KeyDown) return Resultado(Acao.NADA)
+        return interpretarTecla(evento.key, indice, total, colunas, emGrade)
+    }
+
+    internal fun interpretarTecla(
+        key: Key,
+        indice: Int,
+        total: Int,
+        colunas: Int,
+        emGrade: Boolean
+    ): Resultado {
+        if (total <= 0) return Resultado(Acao.NADA)
 
         val porFileira = colunas.coerceAtLeast(1)
         val ultimaFileira = (total - 1) / porFileira
 
-        return when (evento.key) {
+        return when (key) {
             Key.DirectionLeft -> mover(indice, -1, total)
             Key.DirectionRight -> mover(indice, +1, total)
 

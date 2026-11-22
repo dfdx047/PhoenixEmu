@@ -96,7 +96,7 @@ object RomHasher {
      * -- e escolhemos no final, quando o tamanho real ja e conhecido. MD5 e
      * barato; reler a ROM nao e.
      */
-    private fun umaPassada(
+    internal fun umaPassada(
         entrada: InputStream,
         sistema: Sistema,
         fecharEntrada: Boolean = true

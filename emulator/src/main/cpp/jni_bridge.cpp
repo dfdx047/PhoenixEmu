@@ -49,6 +49,8 @@ std::atomic<float> g_stats_fps{0.0f};
 std::atomic<float> g_stats_ms_medio{0.0f};
 std::atomic<float> g_stats_ms_max{0.0f};
 
+extern std::atomic<bool> g_av_dirty;
+
 namespace {
 
 phoenix::LibretroCore g_nucleo;
@@ -130,6 +132,14 @@ void lacoEmulador() {
     };
 
     while (g_rodando.load(std::memory_order_acquire)) {
+        if (g_av_dirty.exchange(false, std::memory_order_acquire)) {
+            double novo_fps = g_nucleo.obterFps();
+            if (novo_fps > 0.0 && novo_fps != fps) {
+                fps = novo_fps;
+                intervalo = std::chrono::nanoseconds(static_cast<long long>(1'000'000'000.0 / fps));
+                proximo_quadro = clock::now();
+            }
+        }
         int tipo_pedido = g_pedido_estado_tipo.load(std::memory_order_acquire);
         if (tipo_pedido != 0) {
             std::string caminho = g_pedido_estado_caminho;

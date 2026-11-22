@@ -10,7 +10,13 @@
 #define LOGI(...) __android_log_print(ANDROID_LOG_INFO, "PhoenixCore", __VA_ARGS__)
 
 extern bool cb_environment(unsigned cmd, void *data);
+extern void phoenix_ambiente_limpar_estado();
 extern std::atomic<int> g_formato_pixel;
+extern std::atomic<double> g_av_fps;
+extern std::atomic<double> g_av_sample_rate;
+extern std::atomic<float> g_av_aspect_ratio;
+extern std::atomic<int> g_av_base_width;
+extern std::atomic<int> g_av_base_height;
 extern std::atomic<bool> g_pular_video;
 extern std::atomic<int> g_ff_velocidade;
 
@@ -180,6 +186,8 @@ std::string LibretroCore::obterInfo() {
 }
 
 double LibretroCore::obterFps() {
+    double dyn = g_av_fps.load(std::memory_order_relaxed);
+    if (dyn > 0.0) return dyn;
     if (!get_system_av_info_) return 60.0;
     retro_system_av_info avInfo = {};
     get_system_av_info_(&avInfo);
@@ -187,6 +195,8 @@ double LibretroCore::obterFps() {
 }
 
 float LibretroCore::obterAspectRatio() {
+    float dyn = g_av_aspect_ratio.load(std::memory_order_relaxed);
+    if (dyn > 0.0f) return dyn;
     if (!get_system_av_info_) return 4.0f / 3.0f;
     retro_system_av_info avInfo = {};
     get_system_av_info_(&avInfo);
@@ -199,6 +209,8 @@ float LibretroCore::obterAspectRatio() {
 }
 
 int LibretroCore::obterLarguraNativa() {
+    int dyn = g_av_base_width.load(std::memory_order_relaxed);
+    if (dyn > 0) return dyn;
     if (!get_system_av_info_) return 256;
     retro_system_av_info avInfo = {};
     get_system_av_info_(&avInfo);
@@ -206,6 +218,8 @@ int LibretroCore::obterLarguraNativa() {
 }
 
 int LibretroCore::obterAlturaNativa() {
+    int dyn = g_av_base_height.load(std::memory_order_relaxed);
+    if (dyn > 0) return dyn;
     if (!get_system_av_info_) return 240;
     retro_system_av_info avInfo = {};
     get_system_av_info_(&avInfo);
@@ -213,6 +227,8 @@ int LibretroCore::obterAlturaNativa() {
 }
 
 double LibretroCore::obterSampleRate() {
+    double dyn = g_av_sample_rate.load(std::memory_order_relaxed);
+    if (dyn > 0.0) return dyn;
     if (!get_system_av_info_) return 44100.0;
     retro_system_av_info avInfo = {};
     get_system_av_info_(&avInfo);
@@ -305,6 +321,7 @@ void LibretroCore::descarregar() {
     }
     jogo_carregado_ = false;
     if (deinit_ != nullptr) deinit_();
+    phoenix_ambiente_limpar_estado();
 
     dlclose(handle_);
     handle_ = nullptr;

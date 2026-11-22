@@ -240,26 +240,59 @@ size_t phoenix_audio_enviar(const int16_t *dados, size_t quadros) {
 
     size_t tail = g_tail.load(std::memory_order_acquire);
     size_t head = g_head.load(std::memory_order_relaxed);
+    size_t cap_usable = (g_capacity > 1) ? (g_capacity - 1) : 1;
+    size_t occupancy = (head >= tail) ? (head - tail) : (g_capacity - tail + head);
+
+    // Dynamic Rate Control (DRC): ajuste suave (±0.5%) na taxa de saída para manter
+    // ocupação próxima de 50% sem underruns/overruns por deriva de clock.
+    constexpr double DRC_MAX_SKEW = 0.005;
+    double target = static_cast<double>(cap_usable) * 0.5;
+    double delta = std::clamp((target - static_cast<double>(occupancy)) / target, -1.0, 1.0);
+    double ratio = 1.0 + DRC_MAX_SKEW * delta;
+
+    const int16_t *src_ptr = dados;
+    size_t out_frames = quadros;
+    thread_local std::vector<int16_t> drc_buf;
+
+    if (quadros >= 8 && std::abs(ratio - 1.0) > 0.0005) {
+        out_frames = static_cast<size_t>(static_cast<double>(quadros) * ratio + 0.5);
+        if (out_frames < 1) out_frames = 1;
+        if (out_frames != quadros) {
+            drc_buf.resize(out_frames * 2);
+            double step = static_cast<double>(quadros - 1) / static_cast<double>(std::max<size_t>(out_frames - 1, 1));
+            for (size_t i = 0; i < out_frames; ++i) {
+                double pos = i * step;
+                size_t idx = static_cast<size_t>(pos);
+                double frac = pos - static_cast<double>(idx);
+                size_t idx2 = std::min(idx + 1, quadros - 1);
+                drc_buf[i * 2] = static_cast<int16_t>(
+                    dados[idx * 2] * (1.0 - frac) + dados[idx2 * 2] * frac);
+                drc_buf[i * 2 + 1] = static_cast<int16_t>(
+                    dados[idx * 2 + 1] * (1.0 - frac) + dados[idx2 * 2 + 1] * frac);
+            }
+            src_ptr = drc_buf.data();
+        }
+    }
 
     size_t free_space = (tail > head) ? (tail - head - 1) : (g_capacity - head + tail - 1);
-    size_t to_write = std::min(quadros, free_space);
+    size_t to_write = std::min(out_frames, free_space);
 
     if (to_write > 0) {
         if (head + to_write <= g_capacity) {
-            std::memcpy(&g_ring[head * 2], dados, to_write * 2 * sizeof(int16_t));
+            std::memcpy(&g_ring[head * 2], src_ptr, to_write * 2 * sizeof(int16_t));
         } else {
             size_t part1 = g_capacity - head;
             size_t part2 = to_write - part1;
-            std::memcpy(&g_ring[head * 2], dados, part1 * 2 * sizeof(int16_t));
-            std::memcpy(&g_ring[0], dados + part1 * 2, part2 * 2 * sizeof(int16_t));
+            std::memcpy(&g_ring[head * 2], src_ptr, part1 * 2 * sizeof(int16_t));
+            std::memcpy(&g_ring[0], src_ptr + part1 * 2, part2 * 2 * sizeof(int16_t));
         }
         g_head.store((head + to_write) % g_capacity, std::memory_order_release);
     }
 
     size_t current_occupancy = (head + to_write >= tail) ? (head + to_write - tail) : (g_capacity - tail + head + to_write);
-    audio_saude_produziu(quadros, to_write, current_occupancy, g_capacity - 1);
+    audio_saude_produziu(out_frames, to_write, current_occupancy, g_capacity - 1);
 
-    return to_write;
+    return quadros;
 }
 
 void phoenix_audio_finalizar() {

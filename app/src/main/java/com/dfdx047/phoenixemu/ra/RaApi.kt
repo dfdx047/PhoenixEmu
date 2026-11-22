@@ -5,10 +5,13 @@ import com.google.gson.JsonObject
 import com.google.gson.JsonParser
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import okhttp3.MediaType.Companion.toMediaType
+import okhttp3.OkHttpClient
+import okhttp3.Request
+import okhttp3.RequestBody.Companion.toRequestBody
 import java.io.IOException
-import java.net.HttpURLConnection
-import java.net.URL
 import java.net.URLEncoder
+import java.util.concurrent.TimeUnit
 
 enum class RaErro { SEM_REDE, CHAVE_INVALIDA, NAO_ENCONTRADO, JOGO_SEM_SUPORTE, LIMITE, SERVIDOR, RESPOSTA_INVALIDA }
 
@@ -92,57 +95,61 @@ object RaApi {
     fun urlBadge(badge: String, bloqueada: Boolean): String =
         "$MIDIA/Badge/$badge${if (bloqueada) "_lock" else ""}.png"
 
+    private val http: OkHttpClient by lazy {
+        OkHttpClient.Builder()
+            .connectTimeout(10, TimeUnit.SECONDS)
+            .readTimeout(15, TimeUnit.SECONDS)
+            .callTimeout(25, TimeUnit.SECONDS)
+            .retryOnConnectionFailure(true)
+            .build()
+    }
+
+    private val FORM_MEDIA = "application/x-www-form-urlencoded; charset=utf-8".toMediaType()
+
     private fun enc(s: String): String = URLEncoder.encode(s, "UTF-8")
 
     private suspend fun get(url: String): RaResultado<JsonElement> = withContext(Dispatchers.IO) {
-        var con: HttpURLConnection? = null
         try {
-            val c = URL(url).openConnection() as HttpURLConnection
-            con = c
-            c.connectTimeout = 10_000
-            c.readTimeout = 15_000
-            c.setRequestProperty("User-Agent", UA)
-            c.setRequestProperty("Accept", "application/json")
-            val code = c.responseCode
-            if (code == 401 || code == 403) return@withContext RaResultado.Erro(RaErro.CHAVE_INVALIDA)
-            if (code == 404) return@withContext RaResultado.Erro(RaErro.NAO_ENCONTRADO)
-            if (code == 429) return@withContext RaResultado.Erro(RaErro.LIMITE)
-            if (code !in 200..299) return@withContext RaResultado.Erro(RaErro.SERVIDOR, "HTTP $code")
-            val texto = c.inputStream.bufferedReader().use { it.readText() }
-            RaResultado.Ok(JsonParser.parseString(texto))
+            val req = Request.Builder()
+                .url(url)
+                .header("User-Agent", UA)
+                .header("Accept", "application/json")
+                .build()
+            http.newCall(req).execute().use { r ->
+                val code = r.code
+                if (code == 401 || code == 403) return@withContext RaResultado.Erro(RaErro.CHAVE_INVALIDA)
+                if (code == 404) return@withContext RaResultado.Erro(RaErro.NAO_ENCONTRADO)
+                if (code == 429) return@withContext RaResultado.Erro(RaErro.LIMITE)
+                if (code !in 200..299) return@withContext RaResultado.Erro(RaErro.SERVIDOR, "HTTP $code")
+                val texto = r.body?.string() ?: return@withContext RaResultado.Erro(RaErro.RESPOSTA_INVALIDA)
+                RaResultado.Ok(JsonParser.parseString(texto))
+            }
         } catch (e: IOException) {
             RaResultado.Erro(RaErro.SEM_REDE, e.message)
         } catch (e: Exception) {
             RaResultado.Erro(RaErro.RESPOSTA_INVALIDA, e.message)
-        } finally {
-            con?.disconnect()
         }
     }
 
     private suspend fun post(url: String, corpo: String): RaResultado<JsonElement> = withContext(Dispatchers.IO) {
-        var con: HttpURLConnection? = null
         try {
-            val c = URL(url).openConnection() as HttpURLConnection
-            con = c
-            c.requestMethod = "POST"
-            c.doOutput = true
-            c.connectTimeout = 10_000
-            c.readTimeout = 15_000
-            c.setRequestProperty("User-Agent", UA)
-            c.setRequestProperty("Content-Type", "application/x-www-form-urlencoded")
-            c.outputStream.use { it.write(corpo.toByteArray(Charsets.UTF_8)) }
-            val code = c.responseCode
-            if (code == 401 || code == 403) return@withContext RaResultado.Erro(RaErro.CHAVE_INVALIDA)
-            if (code == 429) return@withContext RaResultado.Erro(RaErro.LIMITE)
-            if (code !in 200..299) return@withContext RaResultado.Erro(RaErro.SERVIDOR, "HTTP $code")
-            val texto = c.inputStream.bufferedReader().use { it.readText() }
-            RaResultado.Ok(JsonParser.parseString(texto))
+            val req = Request.Builder()
+                .url(url)
+                .header("User-Agent", UA)
+                .post(corpo.toRequestBody(FORM_MEDIA))
+                .build()
+            http.newCall(req).execute().use { r ->
+                val code = r.code
+                if (code == 401 || code == 403) return@withContext RaResultado.Erro(RaErro.CHAVE_INVALIDA)
+                if (code == 429) return@withContext RaResultado.Erro(RaErro.LIMITE)
+                if (code !in 200..299) return@withContext RaResultado.Erro(RaErro.SERVIDOR, "HTTP $code")
+                val texto = r.body?.string() ?: return@withContext RaResultado.Erro(RaErro.RESPOSTA_INVALIDA)
+                RaResultado.Ok(JsonParser.parseString(texto))
+            }
         } catch (e: IOException) {
             RaResultado.Erro(RaErro.SEM_REDE, e.message)
         } catch (e: Exception) {
             RaResultado.Erro(RaErro.RESPOSTA_INVALIDA, e.message)
-        } finally {
-            con?.disconnect()
         }
     }
 
