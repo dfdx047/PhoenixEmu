@@ -27,6 +27,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.displayCutout
+import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -422,8 +423,9 @@ private fun MenuDePausaInner(
     }
 
     val config = LocalConfiguration.current
+    val emRetrato = config.orientation == android.content.res.Configuration.ORIENTATION_PORTRAIT
     val telaLarguraDp = config.screenWidthDp.dp
-    val painelLarguraDp = (telaLarguraDp * 0.42f).coerceIn(340.dp, 420.dp)
+    val painelLarguraDp = (telaLarguraDp * 0.42f).coerceIn(320.dp, 420.dp)
 
     // Estado local único e mutável para o slot selecionado
     var slotSelecionado by remember { mutableIntStateOf(slotSelecionadoInicial.coerceIn(1, 4)) }
@@ -431,8 +433,16 @@ private fun MenuDePausaInner(
     val isVidro = acabamento == "VIDRO"
     val isEsquerda = menuLado == "ESQUERDA"
     val corPainel = paleta.fundoPainel
-    val alignPainel = if (isEsquerda) Alignment.CenterStart else Alignment.CenterEnd
-    val shapePainel = if (isEsquerda) RoundedCornerShape(topEnd = 28.dp, bottomEnd = 28.dp) else RoundedCornerShape(topStart = 28.dp, bottomStart = 28.dp)
+    val alignPainel = when {
+        emRetrato -> Alignment.BottomCenter
+        isEsquerda -> Alignment.CenterStart
+        else -> Alignment.CenterEnd
+    }
+    val shapePainel = when {
+        emRetrato -> RoundedCornerShape(topStart = 28.dp, topEnd = 28.dp)
+        isEsquerda -> RoundedCornerShape(topEnd = 28.dp, bottomEnd = 28.dp)
+        else -> RoundedCornerShape(topStart = 28.dp, bottomStart = 28.dp)
+    }
 
     Box(modifier = Modifier.fillMaxSize()) {
         // Fundo — snapshot congelado
@@ -466,18 +476,19 @@ private fun MenuDePausaInner(
             }
         }
 
-        // Painel lateral
+        // Painel lateral (paisagem) ou folha inferior (retrato)
+        val modTamanhoPainel = if (emRetrato) {
+            Modifier.fillMaxWidth().fillMaxHeight(0.86f)
+        } else {
+            Modifier.width(painelLarguraDp).fillMaxHeight()
+        }
         Surface(
             modifier = if (amoled && ehPainelEscuro && acabamento == "SOLIDO") {
-                Modifier
-                    .width(painelLarguraDp)
-                    .fillMaxHeight()
+                modTamanhoPainel
                     .align(alignPainel)
                     .border(1.dp, paleta.destaque.copy(alpha = 0.5f), shape = shapePainel)
             } else {
-                Modifier
-                    .width(painelLarguraDp)
-                    .fillMaxHeight()
+                modTamanhoPainel
                     .align(alignPainel)
             },
             shape = shapePainel,
@@ -489,7 +500,12 @@ private fun MenuDePausaInner(
                 surface = paleta.fundoPainel,
                 onSurface = paleta.texto,
             )) {
-                Column(modifier = Modifier.fillMaxSize().windowInsetsPadding(WindowInsets.displayCutout)) {
+                Column(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .windowInsetsPadding(WindowInsets.displayCutout)
+                        .windowInsetsPadding(androidx.compose.foundation.layout.WindowInsets.navigationBars)
+                ) {
 
                     // — Cabeçalho fixo —
                     CabecalhoPausa(

@@ -976,6 +976,79 @@ fun TelaConfiguracoes(prefs: Preferencias) {
                     }
                 }
                 Cartao {
+                    Text("Pastas de ROMs", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+                    Text(
+                        "Gerencie as pastas conectadas à biblioteca. Remover uma pasta não apaga seus arquivos.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                    val pastasSalvas by prefs.pastasFluxo.collectAsStateWithLifecycle()
+                    val seletorNovaPasta = rememberLauncherForActivityResult(
+                        ActivityResultContracts.OpenDocumentTree()
+                    ) { uri ->
+                        if (uri != null) {
+                            runCatching {
+                                context.contentResolver.takePersistableUriPermission(
+                                    uri,
+                                    Intent.FLAG_GRANT_READ_URI_PERMISSION
+                                )
+                            }
+                            escopo.launch {
+                                runCatching { BibliotecaStore.obter(context).importarPasta(uri) }
+                            }
+                        }
+                    }
+                    if (pastasSalvas.isEmpty()) {
+                        Text(
+                            "Nenhuma pasta adicionada.",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    } else {
+                        pastasSalvas.sorted().forEach { uriStr ->
+                            val rotulo = remember(uriStr) {
+                                val decod = android.net.Uri.decode(uriStr)
+                                decod.substringAfterLast(':').ifBlank { decod.substringAfterLast('/') }.ifBlank { uriStr }
+                            }
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.SpaceBetween
+                            ) {
+                                Text(
+                                    rotulo,
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    maxLines = 1,
+                                    overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
+                                    modifier = Modifier.weight(1f).padding(end = 8.dp)
+                                )
+                                TextButton(onClick = {
+                                    audio.playClick()
+                                    val uri = android.net.Uri.parse(uriStr)
+                                    prefs.removerPasta(uri)
+                                    runCatching {
+                                        context.contentResolver.releasePersistableUriPermission(
+                                            uri,
+                                            Intent.FLAG_GRANT_READ_URI_PERMISSION
+                                        )
+                                    }
+                                    escopo.launch {
+                                        runCatching { BibliotecaStore.obter(context).sincronizar() }
+                                    }
+                                }) {
+                                    Text("Remover", color = MaterialTheme.colorScheme.error)
+                                }
+                            }
+                        }
+                    }
+                    OutlinedButton(
+                        onClick = { audio.playClick(); seletorNovaPasta.launch(null) },
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Text(stringResource(R.string.acao_adicionar_pasta))
+                    }
+                }
+                Cartao {
                     RotuloComDica(R.string.capas_titulo, R.string.capas_dica)
                     Text(
                         stringResource(R.string.capas_desc),

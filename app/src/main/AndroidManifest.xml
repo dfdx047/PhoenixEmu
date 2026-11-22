@@ -41,7 +41,7 @@
             android:configChanges="orientation|screenSize|keyboard|keyboardHidden|navigation|uiMode|screenLayout|density"
             android:launchMode="singleTask"
             android:process=":emu"
-            android:screenOrientation="sensorLandscape" />
+            android:screenOrientation="fullUser" />
 
         <receiver android:name=".emulacao.AjustesReceiver" android:exported="false">
             <intent-filter>

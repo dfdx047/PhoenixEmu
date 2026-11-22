@@ -85,6 +85,27 @@ data class OverlayConfigNova(
         )
         
         fun layoutModerno(): List<ControleNaTela> = layoutSnes().map { it.copy(formato = "CIRCULO") }
+
+        /** Layouts dedicados para o deck inferior no Modo Retrato. */
+        fun layoutNesRetrato(): List<ControleNaTela> = listOf(
+            ControleNaTela("dpad", TipoControleNaTela.DPAD, 0.24f, 0.48f, tamanhoBase = 1.45f, formato = "CRUZ"),
+            ControleNaTela("b", TipoControleNaTela.BOTAO, 0.67f, 0.54f, tamanhoBase = 1.05f, acao = AcaoDoControle(botaoVirtual = BotaoVirtual.B)),
+            ControleNaTela("a", TipoControleNaTela.BOTAO, 0.86f, 0.44f, tamanhoBase = 1.05f, acao = AcaoDoControle(botaoVirtual = BotaoVirtual.A)),
+            ControleNaTela("select", TipoControleNaTela.BOTAO, 0.36f, 0.86f, tamanhoBase = 0.85f, formato = "PILULA", rotulo = "SELECT", acao = AcaoDoControle(botaoVirtual = BotaoVirtual.SELECT)),
+            ControleNaTela("start", TipoControleNaTela.BOTAO, 0.64f, 0.86f, tamanhoBase = 0.85f, formato = "PILULA", rotulo = "START", acao = AcaoDoControle(botaoVirtual = BotaoVirtual.START))
+        )
+
+        fun layoutSnesRetrato(): List<ControleNaTela> = listOf(
+            ControleNaTela("dpad", TipoControleNaTela.DPAD, 0.23f, 0.50f, tamanhoBase = 1.45f, formato = "CRUZ"),
+            ControleNaTela("y", TipoControleNaTela.BOTAO, 0.62f, 0.50f, tamanhoBase = 0.95f, formato = "LOSANGO", acao = AcaoDoControle(botaoVirtual = BotaoVirtual.Y)),
+            ControleNaTela("x", TipoControleNaTela.BOTAO, 0.75f, 0.35f, tamanhoBase = 0.95f, formato = "LOSANGO", acao = AcaoDoControle(botaoVirtual = BotaoVirtual.X)),
+            ControleNaTela("b", TipoControleNaTela.BOTAO, 0.75f, 0.65f, tamanhoBase = 0.95f, formato = "LOSANGO", acao = AcaoDoControle(botaoVirtual = BotaoVirtual.B)),
+            ControleNaTela("a", TipoControleNaTela.BOTAO, 0.88f, 0.50f, tamanhoBase = 0.95f, formato = "LOSANGO", acao = AcaoDoControle(botaoVirtual = BotaoVirtual.A)),
+            ControleNaTela("l", TipoControleNaTela.BOTAO, 0.16f, 0.13f, tamanhoBase = 0.85f, formato = "PILULA", rotulo = "L", acao = AcaoDoControle(botaoVirtual = BotaoVirtual.L)),
+            ControleNaTela("r", TipoControleNaTela.BOTAO, 0.84f, 0.13f, tamanhoBase = 0.85f, formato = "PILULA", rotulo = "R", acao = AcaoDoControle(botaoVirtual = BotaoVirtual.R)),
+            ControleNaTela("select", TipoControleNaTela.BOTAO, 0.36f, 0.86f, tamanhoBase = 0.85f, formato = "PILULA", rotulo = "SELECT", acao = AcaoDoControle(botaoVirtual = BotaoVirtual.SELECT)),
+            ControleNaTela("start", TipoControleNaTela.BOTAO, 0.64f, 0.86f, tamanhoBase = 0.85f, formato = "PILULA", rotulo = "START", acao = AcaoDoControle(botaoVirtual = BotaoVirtual.START))
+        )
         
         fun converterAntigo(antigo: ConfigDoOverlay): OverlayConfigNova {
             val vis = if (antigo.visivel) ModoVisibilidadeOverlay.SEMPRE else ModoVisibilidadeOverlay.NUNCA

@@ -4,6 +4,7 @@ import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.text.TextMeasurer
@@ -65,6 +66,44 @@ fun desenharRotulo(
     )
 }
 
+private fun desenharFeedbackDirecionalDpad(
+    escopo: DrawScope,
+    centro: Offset,
+    raio: Float,
+    mask: Int,
+    corAtiva: Color,
+    corSeta: Color
+) {
+    val cima = (mask and (1 shl 4)) != 0
+    val baixo = (mask and (1 shl 5)) != 0
+    val esq = (mask and (1 shl 6)) != 0
+    val dir = (mask and (1 shl 7)) != 0
+
+    val dist = raio * 0.72f
+    val tam = raio * 0.24f
+
+    fun desenharSeta(cx: Float, cy: Float, dx: Float, dy: Float, ativa: Boolean) {
+        val cor = if (ativa) corAtiva else corSeta
+        if (ativa) {
+            escopo.drawCircle(color = corAtiva.copy(alpha = 0.40f), radius = tam * 1.45f, center = Offset(cx, cy))
+        }
+        val path = Path().apply {
+            val px = -dy
+            val py = dx
+            moveTo(cx + dx * tam, cy + dy * tam)
+            lineTo(cx - dx * tam * 0.7f + px * tam * 0.85f, cy - dy * tam * 0.7f + py * tam * 0.85f)
+            lineTo(cx - dx * tam * 0.7f - px * tam * 0.85f, cy - dy * tam * 0.7f - py * tam * 0.85f)
+            close()
+        }
+        escopo.drawPath(path, color = cor)
+    }
+
+    desenharSeta(centro.x, centro.y - dist, 0f, -1f, cima)
+    desenharSeta(centro.x, centro.y + dist, 0f, 1f, baixo)
+    desenharSeta(centro.x - dist, centro.y, -1f, 0f, esq)
+    desenharSeta(centro.x + dist, centro.y, 1f, 0f, dir)
+}
+
 object SkinClassica8Bit : SkinDeControles {
     override val id = "classico_8bit"
     override val nome = "Clássico 8-bit"
@@ -85,21 +124,29 @@ object SkinClassica8Bit : SkinDeControles {
         textStyle: TextStyle
     ) {
         val alpha = opacidade.coerceIn(0f, 1f)
-        val corFundo = (if (pressionado) corAcento else corBase).copy(alpha = alpha)
+        val corFundo = (if (pressionado && controle.tipo != TipoControleNaTela.DPAD) corAcento else corBase).copy(alpha = alpha)
         val contorno = corBase.copy(alpha = (alpha + 0.2f).coerceIn(0f, 1f))
-        val escala = if (pressionado) 0.94f else 1f
+        val escala = if (pressionado && controle.tipo != TipoControleNaTela.DPAD) 0.94f else 1f
         val corTexto = (if (pressionado) corBase else corAcento).copy(alpha = (alpha + 0.4f).coerceIn(0f, 1f))
 
         with(escopoCanvas) {
             if (controle.tipo == TipoControleNaTela.DPAD) {
-                val bw = raioOuTamanho * 0.7f * escala
-                val bh = raioOuTamanho * 2.2f * escala
-                
-                drawRoundRect(color = corFundo, topLeft = Offset(centro.x - bh/2, centro.y - bw/2), size = Size(bh, bw), cornerRadius = CornerRadius(4.dp.toPx()))
-                drawRoundRect(color = corFundo, topLeft = Offset(centro.x - bw/2, centro.y - bh/2), size = Size(bw, bh), cornerRadius = CornerRadius(4.dp.toPx()))
-                drawCircle(color = contorno, radius = bw * 0.3f, center = centro)
+                val bw = raioOuTamanho * 0.7f
+                val bh = raioOuTamanho * 2.2f
+
+                drawRoundRect(color = corFundo, topLeft = Offset(centro.x - bh / 2, centro.y - bw / 2), size = Size(bh, bw), cornerRadius = CornerRadius(4.dp.toPx()))
+                drawRoundRect(color = corFundo, topLeft = Offset(centro.x - bw / 2, centro.y - bh / 2), size = Size(bw, bh), cornerRadius = CornerRadius(4.dp.toPx()))
+                drawCircle(color = contorno, radius = bw * 0.28f, center = centro)
+                desenharFeedbackDirecionalDpad(
+                    escopo = this,
+                    centro = centro,
+                    raio = raioOuTamanho,
+                    mask = mask,
+                    corAtiva = corAcento.copy(alpha = (alpha + 0.35f).coerceIn(0f, 1f)),
+                    corSeta = contorno.copy(alpha = (alpha * 0.85f).coerceIn(0f, 1f))
+                )
             } else if (controle.formato == "PILULA") {
-                val rw = raioOuTamanho * 2f * escala
+                val rw = raioOuTamanho * 1.6f * escala
                 val rh = raioOuTamanho * 0.7f * escala
                 drawRoundRect(color = corFundo, topLeft = Offset(centro.x - rw, centro.y - rh), size = Size(rw * 2, rh * 2), cornerRadius = CornerRadius(rh))
                 drawRoundRect(color = contorno, topLeft = Offset(centro.x - rw, centro.y - rh), size = Size(rw * 2, rh * 2), cornerRadius = CornerRadius(rh), style = Stroke(1.5.dp.toPx()))
@@ -133,20 +180,28 @@ object SkinClassica16Bit : SkinDeControles {
         textStyle: TextStyle
     ) {
         val alpha = opacidade.coerceIn(0f, 1f)
-        val corFundo = (if (pressionado) corAcento else corBase).copy(alpha = alpha)
+        val corFundo = (if (pressionado && controle.tipo != TipoControleNaTela.DPAD) corAcento else corBase).copy(alpha = alpha)
         val contorno = corBase.copy(alpha = (alpha + 0.2f).coerceIn(0f, 1f))
-        val escala = if (pressionado) 0.94f else 1f
+        val escala = if (pressionado && controle.tipo != TipoControleNaTela.DPAD) 0.94f else 1f
         val corTexto = (if (pressionado) corBase else corAcento).copy(alpha = (alpha + 0.4f).coerceIn(0f, 1f))
 
         with(escopoCanvas) {
             if (controle.tipo == TipoControleNaTela.DPAD) {
-                val bw = raioOuTamanho * 0.7f * escala
-                val bh = raioOuTamanho * 2.2f * escala
-                drawRect(color = corFundo, topLeft = Offset(centro.x - bh/2, centro.y - bw/2), size = Size(bh, bw))
-                drawRect(color = corFundo, topLeft = Offset(centro.x - bw/2, centro.y - bh/2), size = Size(bw, bh))
-                drawRect(color = contorno, topLeft = Offset(centro.x - bh/2, centro.y - bw/2), size = Size(bh, bw), style = Stroke(1.5.dp.toPx()))
-                drawRect(color = contorno, topLeft = Offset(centro.x - bw/2, centro.y - bh/2), size = Size(bw, bh), style = Stroke(1.5.dp.toPx()))
-                drawRect(color = corFundo, topLeft = Offset(centro.x - bw/2 + 2, centro.y - bw/2 + 2), size = Size(bw - 4, bw - 4))
+                val bw = raioOuTamanho * 0.7f
+                val bh = raioOuTamanho * 2.2f
+                drawRect(color = corFundo, topLeft = Offset(centro.x - bh / 2, centro.y - bw / 2), size = Size(bh, bw))
+                drawRect(color = corFundo, topLeft = Offset(centro.x - bw / 2, centro.y - bh / 2), size = Size(bw, bh))
+                drawRect(color = contorno, topLeft = Offset(centro.x - bh / 2, centro.y - bw / 2), size = Size(bh, bw), style = Stroke(1.5.dp.toPx()))
+                drawRect(color = contorno, topLeft = Offset(centro.x - bw / 2, centro.y - bh / 2), size = Size(bw, bh), style = Stroke(1.5.dp.toPx()))
+                drawRect(color = corFundo, topLeft = Offset(centro.x - bw / 2 + 2, centro.y - bw / 2 + 2), size = Size(bw - 4, bw - 4))
+                desenharFeedbackDirecionalDpad(
+                    escopo = this,
+                    centro = centro,
+                    raio = raioOuTamanho,
+                    mask = mask,
+                    corAtiva = corAcento.copy(alpha = (alpha + 0.35f).coerceIn(0f, 1f)),
+                    corSeta = contorno.copy(alpha = (alpha * 0.85f).coerceIn(0f, 1f))
+                )
             } else if (controle.formato == "PILULA") {
                 val rw = raioOuTamanho * 1.5f * escala
                 val rh = raioOuTamanho * 0.7f * escala
@@ -154,7 +209,6 @@ object SkinClassica16Bit : SkinDeControles {
                 drawRoundRect(color = contorno, topLeft = Offset(centro.x - rw, centro.y - rh), size = Size(rw * 2, rh * 2), cornerRadius = CornerRadius(rh), style = Stroke(1.5.dp.toPx()))
                 desenharRotulo(this, controle, centro, raioOuTamanho, corTexto, mostrarRotulos, textMeasurer, textStyle, opacidade)
             } else {
-                // Diamond buttons
                 drawCircle(color = corFundo, radius = raioOuTamanho * escala, center = centro)
                 drawCircle(color = contorno, radius = raioOuTamanho * escala, center = centro, style = Stroke(1.5.dp.toPx()))
                 desenharRotulo(this, controle, centro, raioOuTamanho, corTexto, mostrarRotulos, textMeasurer, textStyle, opacidade)
@@ -183,29 +237,43 @@ object SkinModerna : SkinDeControles {
         textStyle: TextStyle
     ) {
         val alpha = opacidade.coerceIn(0f, 1f)
-        val corFundo = Color.Black.copy(alpha = (alpha * 0.6f).coerceIn(0f, 1f))
-        val contorno = corBase.copy(alpha = (alpha + 0.3f).coerceIn(0f, 1f))
-        val escala = if (pressionado) 0.94f else 1f
-        val corTexto = Color.White.copy(alpha = (alpha + 0.4f).coerceIn(0f, 1f))
+        val corFundo = Color.Black.copy(alpha = (alpha * 0.58f).coerceIn(0f, 1f))
+        val contorno = corBase.copy(alpha = (alpha + 0.30f).coerceIn(0f, 1f))
+        val brilhoAtivo = corBase.copy(alpha = (alpha * 0.45f).coerceIn(0f, 1f))
+        val escala = if (pressionado && controle.tipo != TipoControleNaTela.DPAD) 0.93f else 1f
+        val corTexto = Color.White.copy(alpha = (alpha + 0.40f).coerceIn(0f, 1f))
 
         with(escopoCanvas) {
             if (controle.tipo == TipoControleNaTela.DPAD) {
-                drawCircle(color = corFundo, radius = raioOuTamanho * 1.2f * escala, center = centro)
-                drawCircle(color = contorno, radius = raioOuTamanho * 1.2f * escala, center = centro, style = Stroke(1.5.dp.toPx()))
-                // Setas...
+                val r = raioOuTamanho * 1.2f
+                drawCircle(color = corFundo, radius = r, center = centro)
+                drawCircle(color = contorno, radius = r, center = centro, style = Stroke(1.5.dp.toPx()))
+                drawCircle(color = contorno.copy(alpha = (alpha * 0.35f).coerceIn(0f, 1f)), radius = r * 0.25f, center = centro)
+                desenharFeedbackDirecionalDpad(
+                    escopo = this,
+                    centro = centro,
+                    raio = raioOuTamanho,
+                    mask = mask,
+                    corAtiva = corBase.copy(alpha = (alpha + 0.40f).coerceIn(0f, 1f)),
+                    corSeta = Color.White.copy(alpha = (alpha * 0.70f).coerceIn(0f, 1f))
+                )
             } else if (controle.formato == "PILULA") {
                 val rw = raioOuTamanho * 1.5f * escala
                 val rh = raioOuTamanho * 0.7f * escala
                 drawRoundRect(color = corFundo, topLeft = Offset(centro.x - rw, centro.y - rh), size = Size(rw * 2, rh * 2), cornerRadius = CornerRadius(rh))
+                if (pressionado) {
+                    drawRoundRect(color = brilhoAtivo, topLeft = Offset(centro.x - rw, centro.y - rh), size = Size(rw * 2, rh * 2), cornerRadius = CornerRadius(rh))
+                }
                 drawRoundRect(color = contorno, topLeft = Offset(centro.x - rw, centro.y - rh), size = Size(rw * 2, rh * 2), cornerRadius = CornerRadius(rh), style = Stroke(1.5.dp.toPx()))
                 desenharRotulo(this, controle, centro, raioOuTamanho, corTexto, mostrarRotulos, textMeasurer, textStyle, opacidade)
             } else {
-                drawCircle(color = corFundo, radius = raioOuTamanho * escala, center = centro)
-                drawCircle(color = contorno, radius = raioOuTamanho * escala, center = centro, style = Stroke(1.5.dp.toPx()))
+                val r = raioOuTamanho * escala
+                drawCircle(color = corFundo, radius = r, center = centro)
+                if (pressionado) {
+                    drawCircle(color = brilhoAtivo, radius = r, center = centro)
+                }
+                drawCircle(color = contorno, radius = r, center = centro, style = Stroke(1.5.dp.toPx()))
                 desenharRotulo(this, controle, centro, raioOuTamanho, corTexto, mostrarRotulos, textMeasurer, textStyle, opacidade)
-            }
-            if (pressionado) {
-                drawCircle(color = corAcento.copy(alpha = 0.5f), radius = raioOuTamanho * escala, center = centro)
             }
         }
     }

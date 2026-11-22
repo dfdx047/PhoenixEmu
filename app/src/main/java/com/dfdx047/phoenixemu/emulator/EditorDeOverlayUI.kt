@@ -219,103 +219,45 @@ fun EditorDeOverlayUI(
             }
         }
 
-        // Area de edição (o canvas) — usa exatamente os mesmos insets do OverlayDeToque para alinhamento 1:1
-        Box(
+        // Area de edição (o canvas) — usa exatamente os mesmos insets e dimensoes em px do OverlayDeToque (1:1)
+        BoxWithConstraints(
             modifier = Modifier
                 .fillMaxSize()
                 .displayCutoutPadding()
                 .padding(configInicial.margemSeguraDp.dp)
         ) {
+            val w = constraints.maxWidth.toFloat().coerceAtLeast(1f)
+            val h = constraints.maxHeight.toFloat().coerceAtLeast(1f)
+            val rRef = Math.min(w, h) * 0.08f * configInicial.escalaGlobal
+
             // Desenhar grid se ativado
             if (state.snapToGrid) {
                 Canvas(modifier = Modifier.fillMaxSize()) {
-                    val w = size.width
-                    val h = size.height
                     val step = state.gridSize.dp.toPx()
                     var x = 0f
-                    while (x < w) {
-                        drawLine(Color.White.copy(alpha = 0.1f), start = Offset(x, 0f), end = Offset(x, h))
+                    while (x < size.width) {
+                        drawLine(Color.White.copy(alpha = 0.1f), start = Offset(x, 0f), end = Offset(x, size.height))
                         x += step
                     }
                     var y = 0f
-                    while (y < h) {
-                        drawLine(Color.White.copy(alpha = 0.1f), start = Offset(0f, y), end = Offset(w, y))
+                    while (y < size.height) {
+                        drawLine(Color.White.copy(alpha = 0.1f), start = Offset(0f, y), end = Offset(size.width, y))
                         y += step
                     }
                 }
             }
 
-            // Desenhar controles (como no OverlayDeToque, mas permitindo arraste)
-            state.controles.forEach { controle ->
-
-                BoxWithConstraints(modifier = Modifier.fillMaxSize()) {
-                    val w = maxWidth.value * densidade.density
-                    val h = maxHeight.value * densidade.density
-                    
-                    val px = controle.x * w
-                    val py = controle.y * h
-                    val raio = Math.min(w, h) * 0.08f * configInicial.escalaGlobal * controle.tamanhoBase
-
-                    Box(
-                        modifier = Modifier
-                            .offset { IntOffset((px - raio*2).roundToInt(), (py - raio*2).roundToInt()) }
-                            .size((raio*4/densidade.density).dp)
-                            .pointerInput(controle.id) {
-                                detectDragGestures(
-                                    onDragStart = { state = state.copy(selectedId = controle.id) },
-                                    onDragEnd = {
-                                        val atual = state.controles.first { it.id == controle.id }
-                                        val mudou = atual.x != controle.x || atual.y != controle.y
-                                        if (mudou) pushState(state.controles)
-                                    }
-                                ) { mudanca, arrasto ->
-                                    mudanca.consume()
-                                    val atual = state.controles.first { it.id == controle.id }
-                                    var newX = atual.x + (arrasto.x / w)
-                                    var newY = atual.y + (arrasto.y / h)
-
-                                    if (state.snapToGrid) {
-                                        // Converter para px, snap, voltar para fração
-                                        val stepPx = state.gridSize.dp.toPx()
-                                        val curPxX = newX * w
-                                        val curPxY = newY * h
-                                        val snapX = (curPxX / stepPx).roundToInt() * stepPx
-                                        val snapY = (curPxY / stepPx).roundToInt() * stepPx
-                                        newX = snapX / w
-                                        newY = snapY / h
-                                    }
-                                    
-                                    val novos = state.controles.map {
-                                        if (it.id == controle.id) it.copy(x = newX.coerceIn(0f, 1f), y = newY.coerceIn(0f, 1f)) else it
-                                    }
-                                    state = state.copy(controles = novos)
-                                }
-                            }
-                            .clickable {
-                                state = state.copy(selectedId = controle.id, showPropsDialog = true)
-                            }
-                    ) {
-                        Canvas(modifier = Modifier.fillMaxSize()) {
-                            // Desenha um bounding box se estiver selecionado
-                            if (state.selectedId == controle.id) {
-                                drawRect(corPrimaria.copy(alpha = 0.5f), style = Stroke(2.dp.toPx()))
-                            }
-                        }
-                    }
-                }
-            }
-
-            // O desenho real da skin
+            // O desenho real da skin (exatamente a mesma formula do OverlayDeToque)
             Canvas(modifier = Modifier.fillMaxSize()) {
-                val w = size.width
-                val h = size.height
-                val rRef = Math.min(w, h) * 0.08f * configInicial.escalaGlobal
+                val cw = size.width
+                val ch = size.height
+                val crRef = Math.min(cw, ch) * 0.08f * configInicial.escalaGlobal
                 val skin = Skins.porId(configInicial.skinId)
 
                 for (c in state.controles) {
-                    val cx = c.x * w
-                    val cy = c.y * h
-                    val raio = rRef * c.tamanhoBase
+                    val cx = c.x * cw
+                    val cy = c.y * ch
+                    val raio = crRef * c.tamanhoBase
 
                     skin.desenharControle(
                         escopoCanvas = this,
@@ -331,6 +273,61 @@ fun EditorDeOverlayUI(
                         textMeasurer = textMeasurer,
                         textStyle = textStyle
                     )
+                }
+            }
+
+            // Alvos de arraste e selecao sobre os controles (coordenadas 1:1 em px)
+            state.controles.forEach { controle ->
+                val px = controle.x * w
+                val py = controle.y * h
+                val raio = rRef * controle.tamanhoBase
+                val halfW = if (controle.formato == "PILULA") raio * 1.9f else raio * 1.6f
+                val halfH = if (controle.formato == "PILULA") raio * 1.1f else raio * 1.6f
+
+                Box(
+                    modifier = Modifier
+                        .offset { IntOffset((px - halfW).roundToInt(), (py - halfH).roundToInt()) }
+                        .size(
+                            width = with(densidade) { (halfW * 2f).toDp() },
+                            height = with(densidade) { (halfH * 2f).toDp() }
+                        )
+                        .pointerInput(controle.id, w, h) {
+                            detectDragGestures(
+                                onDragStart = { state = state.copy(selectedId = controle.id) },
+                                onDragEnd = {
+                                    val atual = state.controles.firstOrNull { it.id == controle.id }
+                                    val mudou = atual != null && (atual.x != controle.x || atual.y != controle.y)
+                                    if (mudou) pushState(state.controles)
+                                }
+                            ) { mudanca, arrasto ->
+                                mudanca.consume()
+                                val atual = state.controles.firstOrNull { it.id == controle.id } ?: return@detectDragGestures
+                                var newX = atual.x + (arrasto.x / w)
+                                var newY = atual.y + (arrasto.y / h)
+
+                                if (state.snapToGrid) {
+                                    val stepPx = state.gridSize.dp.toPx()
+                                    val snapX = ((newX * w) / stepPx).roundToInt() * stepPx
+                                    val snapY = ((newY * h) / stepPx).roundToInt() * stepPx
+                                    newX = snapX / w
+                                    newY = snapY / h
+                                }
+
+                                val novos = state.controles.map {
+                                    if (it.id == controle.id) it.copy(x = newX.coerceIn(0f, 1f), y = newY.coerceIn(0f, 1f)) else it
+                                }
+                                state = state.copy(controles = novos)
+                            }
+                        }
+                        .clickable {
+                            state = state.copy(selectedId = controle.id, showPropsDialog = true)
+                        }
+                ) {
+                    Canvas(modifier = Modifier.fillMaxSize()) {
+                        if (state.selectedId == controle.id) {
+                            drawRect(corPrimaria.copy(alpha = 0.7f), style = Stroke(2.dp.toPx()))
+                        }
+                    }
                 }
             }
         }

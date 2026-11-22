@@ -93,6 +93,9 @@ import android.content.res.Configuration
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.foundation.layout.displayCutout
+import androidx.compose.foundation.layout.navigationBars
+import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.runtime.CompositionLocalProvider
 
 /**
@@ -127,6 +130,8 @@ class EmulatorActivity : ComponentActivity() {
     private var carregandoJogo by mutableStateOf(true)
     private var loadError by mutableStateOf<String?>(null)
     private var infoMessage by mutableStateOf("")
+    private var emRetrato by mutableStateOf(false)
+    private var configUi by mutableStateOf<Configuration?>(null)
 
     private var srmPath: String? = null
     private var isJogoReal = false
@@ -620,6 +625,8 @@ class EmulatorActivity : ComponentActivity() {
             Configuration(resources.configuration)
         }
         contextoLocalizado = createConfigurationContext(config)
+        configUi = config
+        emRetrato = resources.configuration.orientation == Configuration.ORIENTATION_PORTRAIT
 
         val autoCarregarExtra = intent.getBooleanExtra(EXTRA_AUTOCARREGAR, false) && !hardcoreAtivo
         val tituloExtra = intent.getStringExtra(EXTRA_TITULO)
@@ -668,10 +675,11 @@ class EmulatorActivity : ComponentActivity() {
 
         setContent {
             val focusRequester = remember { FocusRequester() }
+            val cfgAtiva = configUi ?: config
 
             CompositionLocalProvider(
                 LocalContext provides (contextoLocalizado ?: this@EmulatorActivity),
-                LocalConfiguration provides config
+                LocalConfiguration provides cfgAtiva
             ) {
                 PhoenixEmuTheme(
                     temaAtual = tema,
@@ -690,6 +698,19 @@ class EmulatorActivity : ComponentActivity() {
                         modifier = Modifier.padding(16.dp)
                     )
                 } else {
+                    val retrato = emRetrato
+                    Box(
+                        modifier = if (retrato) {
+                            Modifier
+                                .align(Alignment.TopCenter)
+                                .fillMaxWidth()
+                                .fillMaxHeight(0.46f)
+                                .windowInsetsPadding(androidx.compose.foundation.layout.WindowInsets.displayCutout)
+                        } else {
+                            Modifier.fillMaxSize()
+                        },
+                        contentAlignment = Alignment.Center
+                    ) {
                     AndroidView(
                         factory = { context ->
                             SurfaceView(context).apply {
@@ -759,6 +780,7 @@ class EmulatorActivity : ComponentActivity() {
                             }
                         }
                     )
+                    }
 
                     if (!isPaused && menuGesto) {
                         Box(
@@ -775,8 +797,22 @@ class EmulatorActivity : ComponentActivity() {
                         )
                     }
 
+                    val overlayEfetivo = remember(overlayConfig, retrato, plataforma) {
+                        if (retrato) {
+                            overlayConfig.copy(
+                                controles = if (plataforma == "SNES") {
+                                    com.dfdx047.phoenixemu.data.OverlayConfigNova.layoutSnesRetrato()
+                                } else {
+                                    com.dfdx047.phoenixemu.data.OverlayConfigNova.layoutNesRetrato()
+                                }
+                            )
+                        } else {
+                            overlayConfig
+                        }
+                    }
+
                     OverlayDeToque(
-                        config = overlayConfig,
+                        config = overlayEfetivo,
                         visivel = (!isPaused || !overlayConfig.ocultarNoMenu) &&
                             !(controleOcultouOverlay && overlayConfig.visivelModo == com.dfdx047.phoenixemu.data.ModoVisibilidadeOverlay.AUTO_ESCONDER_COM_CONTROLE) &&
                             !editandoOverlay,
@@ -787,7 +823,20 @@ class EmulatorActivity : ComponentActivity() {
                             // Se tocou na tela, reexibir overlay
                             controleOcultouOverlay = false
                         },
-                        aoAtalhoNaTela = { a, p -> atalhoDaTela(a, p) }
+                        aoAtalhoNaTela = { a, p -> atalhoDaTela(a, p) },
+                        plataforma = plataforma,
+                        modifier = if (retrato) {
+                            Modifier
+                                .align(Alignment.BottomCenter)
+                                .fillMaxWidth()
+                                .fillMaxHeight(0.54f)
+                                .background(Color(0xFF0E0E14))
+                                .windowInsetsPadding(androidx.compose.foundation.layout.WindowInsets.navigationBars)
+                        } else {
+                            Modifier
+                                .fillMaxSize()
+                                .windowInsetsPadding(androidx.compose.foundation.layout.WindowInsets.displayCutout)
+                        }
                     )
 
                     HudDoJogo(
@@ -1050,6 +1099,18 @@ class EmulatorActivity : ComponentActivity() {
         gerenciadorDeEstados?.cancelarPendentes()
         srmPath?.let { nucleo.salvarSram(it) }
         tentarAutosave()
+    }
+
+    override fun onConfigurationChanged(newConfig: Configuration) {
+        super.onConfigurationChanged(newConfig)
+        val idiomaTag = intent.getStringExtra(EXTRA_IDIOMA) ?: ""
+        val atualizada = Configuration(newConfig).apply {
+            if (idiomaTag.isNotBlank()) setLocale(Locale.forLanguageTag(idiomaTag))
+        }
+        contextoLocalizado = createConfigurationContext(atualizada)
+        configUi = atualizada
+        emRetrato = newConfig.orientation == Configuration.ORIENTATION_PORTRAIT
+        hideSystemBars()
     }
 
     override fun onResume() {

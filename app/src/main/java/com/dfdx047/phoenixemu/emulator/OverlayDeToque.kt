@@ -25,6 +25,7 @@ import androidx.compose.ui.unit.sp
 import com.dfdx047.phoenixemu.data.BotaoVirtual
 import com.dfdx047.phoenixemu.data.OverlayConfigNova
 import com.dfdx047.phoenixemu.data.TipoControleNaTela
+import kotlin.math.abs
 import kotlin.math.atan2
 import kotlin.math.hypot
 
@@ -36,11 +37,13 @@ fun OverlayDeToque(
     corAcento: Color,
     aoMudarToque: (Int) -> Unit,
     aoAtalhoNaTela: (com.dfdx047.phoenixemu.data.AcaoAtalho, Boolean) -> Unit = { _, _ -> },
-    plataforma: String = "SNES"
+    plataforma: String = "SNES",
+    modifier: Modifier = Modifier.fillMaxSize().displayCutoutPadding()
 ) {
     var touchMaskAtual by remember { mutableIntStateOf(0) }
     val atalhosAtivos = remember { mutableMapOf<String, com.dfdx047.phoenixemu.data.AcaoAtalho>() }
     val idsAtalhoEstado = remember { androidx.compose.runtime.mutableStateOf(emptySet<String>()) }
+    val pointersDpad = remember { mutableMapOf<Long, String>() }
     val view = LocalView.current
     val textMeasurer = rememberTextMeasurer()
     val textStyle = TextStyle(
@@ -50,6 +53,7 @@ fun OverlayDeToque(
 
     DisposableEffect(visivel) {
         onDispose {
+            pointersDpad.clear()
             if (touchMaskAtual != 0) {
                 touchMaskAtual = 0
                 aoMudarToque(0)
@@ -70,9 +74,7 @@ fun OverlayDeToque(
     val skin = Skins.porId(skinId)
 
     Box(
-        modifier = Modifier
-            .fillMaxSize()
-            .displayCutoutPadding()
+        modifier = modifier
             .padding(config.margemSeguraDp.dp)
             .pointerInput(config) {
                 awaitPointerEventScope {
@@ -86,42 +88,89 @@ fun OverlayDeToque(
                         val rRef = Math.min(w, h) * 0.08f * config.escalaGlobal
 
                         val changes = evento.changes
+                        val idsPressionados = HashSet<Long>(changes.size)
                         for (i in changes.indices) {
                             val pointer = changes[i]
                             if (!pointer.pressed) continue
+                            val pid = pointer.id.value
+                            idsPressionados.add(pid)
 
                             val px = pointer.position.x
                             val py = pointer.position.y
 
-                            var distMin = Float.MAX_VALUE
-                            var botaoProximo: BotaoVirtual? = null
-                            var controleProximo: com.dfdx047.phoenixemu.data.ControleNaTela? = null
+                            // 1) Exclusividade por pointer: se este dedo ja esta travado no D-pad,
+                            // continua controlando apenas o D-pad ate ser solto.
+                            val dpadTravadoId = pointersDpad[pid]
+                            var tratouNoDpad = false
+                            if (dpadTravadoId != null && config.dpadDeslizar) {
+                                val dpad = config.controles.firstOrNull { it.id == dpadTravadoId && it.visivel }
+                                if (dpad != null) {
+                                    val cx = dpad.x * w
+                                    val cy = dpad.y * h
+                                    val dx = px - cx
+                                    val dy = py - cy
+                                    val dist = hypot(dx.toDouble(), dy.toDouble()).toFloat()
+                                    val raioDpadToque = rRef * dpad.tamanhoBase * 1.5f
+                                    if (dist > config.zonaMortaDpad * raioDpadToque) {
+                                        novaMascara = novaMascara or direcaoDpad(dx, dy, config.dpadDiagonal)
+                                    }
+                                    tratouNoDpad = true
+                                }
+                            }
+                            if (tratouNoDpad) continue
 
+                            // 2) Verifica se o toque caiu dentro de um D-pad.
+                            var achouDpad = false
                             for (j in config.controles.indices) {
                                 val c = config.controles[j]
+                                if (!c.visivel || c.tipo != TipoControleNaTela.DPAD) continue
                                 val cx = c.x * w
                                 val cy = c.y * h
                                 val dx = px - cx
                                 val dy = py - cy
                                 val dist = hypot(dx.toDouble(), dy.toDouble()).toFloat()
+                                val raioDpadToque = rRef * c.tamanhoBase * 1.5f
+                                if (dist < raioDpadToque) {
+                                    pointersDpad[pid] = c.id
+                                    if (dist > config.zonaMortaDpad * raioDpadToque) {
+                                        novaMascara = novaMascara or direcaoDpad(dx, dy, config.dpadDiagonal)
+                                    }
+                                    achouDpad = true
+                                    break
+                                }
+                            }
+                            if (achouDpad) continue
+
+                            // 3) Caso contrario, escolhe o unico botao mais proximo (hit-box retangular para PILULA).
+                            var distMinNorm = Float.MAX_VALUE
+                            var botaoProximo: BotaoVirtual? = null
+                            var controleProximo: com.dfdx047.phoenixemu.data.ControleNaTela? = null
+
+                            for (j in config.controles.indices) {
+                                val c = config.controles[j]
+                                if (!c.visivel || c.tipo == TipoControleNaTela.DPAD) continue
+                                val cx = c.x * w
+                                val cy = c.y * h
+                                val dx = px - cx
+                                val dy = py - cy
                                 val raio = rRef * c.tamanhoBase
 
-                                if (c.tipo == TipoControleNaTela.DPAD) {
-                                    val raioDpadToque = raio * 1.5f
-                                    if (dist < raioDpadToque && dist > config.zonaMortaDpad * raioDpadToque) {
-                                        val ang = atan2(dy.toDouble(), dx.toDouble()) * 180 / Math.PI
-                                        if (ang > -67.5 && ang < 67.5) novaMascara = novaMascara or (1 shl 7) // DIR
-                                        if (ang > 22.5 && ang < 157.5) novaMascara = novaMascara or (1 shl 5) // BAIXO
-                                        if (ang < -22.5 && ang > -157.5) novaMascara = novaMascara or (1 shl 4) // CIMA
-                                        if (ang > 112.5 || ang < -112.5) novaMascara = novaMascara or (1 shl 6) // ESQ
-                                    }
+                                val distNorm: Float? = if (c.formato == "PILULA") {
+                                    val rw = raio * 1.85f
+                                    val rh = raio * 1.05f
+                                    if (abs(dx) <= rw && abs(dy) <= rh) {
+                                        hypot((dx / rw).toDouble(), (dy / rh).toDouble()).toFloat()
+                                    } else null
                                 } else {
-                                    val raioToque = if (c.formato == "PILULA") raio * 2.0f else raio * 1.5f
-                                    if (dist < raioToque && dist < distMin) {
-                                        distMin = dist
-                                        botaoProximo = c.acao?.botaoVirtual
-                                        controleProximo = c
-                                    }
+                                    val raioToque = raio * 1.45f
+                                    val dist = hypot(dx.toDouble(), dy.toDouble()).toFloat()
+                                    if (dist < raioToque) dist / raioToque else null
+                                }
+
+                                if (distNorm != null && distNorm < distMinNorm) {
+                                    distMinNorm = distNorm
+                                    botaoProximo = c.acao?.botaoVirtual
+                                    controleProximo = c
                                 }
                             }
 
@@ -150,6 +199,7 @@ fun OverlayDeToque(
                                 novosAtalhos[ctlProx.id] = atalhoCtl
                             }
                         }
+                        pointersDpad.keys.retainAll(idsPressionados)
 
                         val atalhosApertados = novosAtalhos.filterKeys { it !in atalhosAtivos }
                         val atalhosSoltos = atalhosAtivos.filterKeys { it !in novosAtalhos }
@@ -182,6 +232,7 @@ fun OverlayDeToque(
 
             for (i in config.controles.indices) {
                 val c = config.controles[i]
+                if (!c.visivel) continue
                 val cx = c.x * w
                 val cy = c.y * h
                 val raio = rRef * c.tamanhoBase
@@ -213,7 +264,7 @@ fun OverlayDeToque(
                     (touchMaskAtual and bit) != 0 || c.id in idsAtalhoEstado.value
                 }
 
-                val opacidade = if (pressionado) config.opacidadePressionado else config.opacidadeOciosa
+                val opacidade = if (pressionado) config.opacidadePressionado else (c.opacidade ?: config.opacidadeOciosa)
 
                 skin.desenharControle(
                     escopoCanvas = this,
@@ -232,4 +283,21 @@ fun OverlayDeToque(
             }
         }
     }
+}
+
+private fun direcaoDpad(dx: Float, dy: Float, diagonal: Boolean): Int {
+    if (!diagonal) {
+        return if (abs(dx) >= abs(dy)) {
+            if (dx >= 0f) (1 shl 7) else (1 shl 6)
+        } else {
+            if (dy >= 0f) (1 shl 5) else (1 shl 4)
+        }
+    }
+    var m = 0
+    val ang = atan2(dy.toDouble(), dx.toDouble()) * 180.0 / Math.PI
+    if (ang > -67.5 && ang < 67.5) m = m or (1 shl 7) // DIR
+    if (ang > 22.5 && ang < 157.5) m = m or (1 shl 5) // BAIXO
+    if (ang < -22.5 && ang > -157.5) m = m or (1 shl 4) // CIMA
+    if (ang > 112.5 || ang < -112.5) m = m or (1 shl 6) // ESQ
+    return m
 }
