@@ -955,11 +955,13 @@ fun PhoenixApp(prefs: Preferencias, biblioteca: BibliotecaStore, trocas: kotlinx
                 }
 
                 if (secao == Secao.BIBLIOTECA) {
+                    val emRetrato = androidx.compose.ui.platform.LocalConfiguration.current.orientation ==
+                        android.content.res.Configuration.ORIENTATION_PORTRAIT
                     Box(
                         modifier = Modifier
                             .align(Alignment.BottomEnd)
                             .navigationBarsPadding()
-                            .padding(end = 16.dp, bottom = if (xmbAtivo) 16.dp else 96.dp)
+                            .padding(end = 16.dp, bottom = if (emRetrato) 88.dp else 16.dp)
                     ) {
                         AnimatedVisibility(
                             visible = !navegacaoOculta,
@@ -969,7 +971,7 @@ fun PhoenixApp(prefs: Preferencias, biblioteca: BibliotecaStore, trocas: kotlinx
                             BotaoPilula(
                                 icone = Icons.Default.Add,
                                 texto = stringResource(R.string.acao_adicionar_pasta),
-                                expandido = xmbAtivo || (fabExpandido && oculto < 0.5f && modoVisual == ModoVisual.GRADE),
+                                expandido = false,
                                 onClick = { audio.playClick(); abrirExplorador.launch(null) },
                                 modifier = Modifier
                                     .graphicsLayer {

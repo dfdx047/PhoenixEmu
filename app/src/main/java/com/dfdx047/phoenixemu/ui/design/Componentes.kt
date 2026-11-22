@@ -549,7 +549,7 @@ fun BotaoPilula(
         Row(
             modifier = Modifier
                 .background(MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.9f))
-                .padding(horizontal = 18.dp, vertical = 16.dp),
+                .padding(horizontal = if (expandido) 18.dp else 16.dp, vertical = 16.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
             Icon(
