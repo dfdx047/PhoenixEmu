@@ -199,9 +199,11 @@ internal fun LinhaSegmentada(
         AnimatedVisibility(dicaAberta) {
             Text(text = dica, fontSize = 12.sp, color = paleta.texto.copy(alpha = 0.8f), modifier = Modifier.padding(bottom = 8.dp))
         }
-        Row(
-            modifier = Modifier.fillMaxWidth().height(40.dp).clip(RoundedCornerShape(8.dp)).border(1.dp, paleta.destaque.copy(alpha = 0.5f), RoundedCornerShape(8.dp)),
-            verticalAlignment = Alignment.CenterVertically
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .clip(RoundedCornerShape(8.dp))
+                .border(1.dp, paleta.destaque.copy(alpha = 0.5f), RoundedCornerShape(8.dp))
         ) {
             FlowRow(
                 modifier = Modifier.fillMaxWidth(),
@@ -213,16 +215,24 @@ internal fun LinhaSegmentada(
                     Box(
                         modifier = Modifier
                             .weight(1f)
+                            .widthIn(min = 72.dp)
                             .height(40.dp)
                             .clip(RoundedCornerShape(8.dp))
                             .let { m ->
                                 if (isSelected) m.border(1.5.dp, paleta.destaque, RoundedCornerShape(8.dp)) else m
                             }
                             .background(if (isSelected) paleta.destaque.copy(alpha = 0.38f) else Color.Transparent)
-                            .clickable { onSelect(valor) },
+                            .clickable { onSelect(valor) }
+                            .padding(horizontal = 6.dp),
                         contentAlignment = Alignment.Center,
                     ) {
-                        Text(text = rotulo, fontSize = 12.sp, fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal, color = if (isSelected) paleta.destaque else paleta.texto)
+                        Text(
+                            text = rotulo,
+                            fontSize = 12.sp,
+                            maxLines = 1,
+                            fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal,
+                            color = if (isSelected) paleta.destaque else paleta.texto
+                        )
                     }
                 }
             }

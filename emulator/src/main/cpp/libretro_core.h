@@ -57,6 +57,7 @@ public:
 
 private:
     void *handle_ = nullptr;
+    bool jogo_carregado_ = false;
 
     decltype(&retro_set_environment) set_environment_ = nullptr;
     decltype(&retro_set_video_refresh) set_video_refresh_ = nullptr;

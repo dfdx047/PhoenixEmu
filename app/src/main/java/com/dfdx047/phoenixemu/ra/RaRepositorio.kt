@@ -1,6 +1,9 @@
 package com.dfdx047.phoenixemu.ra
 
 import android.content.Context
+import android.security.keystore.KeyGenParameterSpec
+import android.security.keystore.KeyProperties
+import android.util.Base64
 import com.google.gson.Gson
 import com.google.gson.reflect.TypeToken
 import kotlinx.coroutines.Dispatchers
@@ -8,20 +11,93 @@ import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import java.io.File
+import java.security.KeyStore
+import javax.crypto.Cipher
+import javax.crypto.KeyGenerator
+import javax.crypto.SecretKey
+import javax.crypto.spec.GCMParameterSpec
 
-/** Credenciais do RA. Mesmo arquivo de prefs da tela antiga, para nao deslogar ninguem. */
+/**
+ * Credenciais do RA com criptografia AES-GCM via AndroidKeyStore para api_key e token.
+ * Migra transparentemente valores legados em texto puro na primeira leitura.
+ */
 object RaCredenciais {
     private const val ARQ = "RetroAchievementsPrefs"
+    private const val KEY_ALIAS = "phoenix_ra_cred_key"
+    private const val PREFIXO_ENC = "enc_v1:"
+    private const val TRANSFORMATION = "AES/GCM/NoPadding"
+
+    private fun obterChave(): SecretKey? = runCatching {
+        val ks = KeyStore.getInstance("AndroidKeyStore").apply { load(null) }
+        (ks.getKey(KEY_ALIAS, null) as? SecretKey) ?: run {
+            val gen = KeyGenerator.getInstance(KeyProperties.KEY_ALGORITHM_AES, "AndroidKeyStore")
+            val spec = KeyGenParameterSpec.Builder(
+                KEY_ALIAS,
+                KeyProperties.PURPOSE_ENCRYPT or KeyProperties.PURPOSE_DECRYPT
+            )
+                .setBlockModes(KeyProperties.BLOCK_MODE_GCM)
+                .setEncryptionPaddings(KeyProperties.ENCRYPTION_PADDING_NONE)
+                .setKeySize(256)
+                .build()
+            gen.init(spec)
+            gen.generateKey()
+        }
+    }.getOrNull()
+
+    private fun cifrar(texto: String): String {
+        if (texto.isEmpty()) return ""
+        val chave = obterChave() ?: return texto
+        return runCatching {
+            val cipher = Cipher.getInstance(TRANSFORMATION)
+            cipher.init(Cipher.ENCRYPT_MODE, chave)
+            val iv = cipher.iv
+            val dados = cipher.doFinal(texto.toByteArray(Charsets.UTF_8))
+            val combinado = ByteArray(1 + iv.size + dados.size)
+            combinado[0] = iv.size.toByte()
+            System.arraycopy(iv, 0, combinado, 1, iv.size)
+            System.arraycopy(dados, 0, combinado, 1 + iv.size, dados.size)
+            PREFIXO_ENC + Base64.encodeToString(combinado, Base64.NO_WRAP)
+        }.getOrDefault(texto)
+    }
+
+    private fun decifrar(c: Context, key: String, bruto: String): String {
+        if (bruto.isEmpty()) return ""
+        if (!bruto.startsWith(PREFIXO_ENC)) {
+            // Valor legado em texto puro: regrava cifrado transparentemente.
+            c.getSharedPreferences(ARQ, Context.MODE_PRIVATE).edit().putString(key, cifrar(bruto)).apply()
+            return bruto
+        }
+        val chave = obterChave() ?: return ""
+        return runCatching {
+            val bytes = Base64.decode(bruto.removePrefix(PREFIXO_ENC), Base64.NO_WRAP)
+            val ivLen = bytes[0].toInt() and 0xFF
+            val iv = bytes.copyOfRange(1, 1 + ivLen)
+            val cipherText = bytes.copyOfRange(1 + ivLen, bytes.size)
+            val cipher = Cipher.getInstance(TRANSFORMATION)
+            cipher.init(Cipher.DECRYPT_MODE, chave, GCMParameterSpec(128, iv))
+            String(cipher.doFinal(cipherText), Charsets.UTF_8)
+        }.getOrDefault("")
+    }
+
     fun usuario(c: Context): String = c.getSharedPreferences(ARQ, Context.MODE_PRIVATE).getString("username", "") ?: ""
-    fun chave(c: Context): String = c.getSharedPreferences(ARQ, Context.MODE_PRIVATE).getString("api_key", "") ?: ""
+    fun chave(c: Context): String {
+        val bruto = c.getSharedPreferences(ARQ, Context.MODE_PRIVATE).getString("api_key", "") ?: ""
+        return decifrar(c, "api_key", bruto)
+    }
     fun logado(c: Context): Boolean = c.getSharedPreferences(ARQ, Context.MODE_PRIVATE).getBoolean("isLogged", false)
     fun salvar(c: Context, usuario: String, chave: String) {
         c.getSharedPreferences(ARQ, Context.MODE_PRIVATE).edit()
-            .putString("username", usuario).putString("api_key", chave).putBoolean("isLogged", true).apply()
+            .putString("username", usuario)
+            .putString("api_key", cifrar(chave))
+            .putBoolean("isLogged", true)
+            .apply()
     }
-    fun token(c: Context): String = c.getSharedPreferences(ARQ, Context.MODE_PRIVATE).getString("token", "") ?: ""
+    fun token(c: Context): String {
+        val bruto = c.getSharedPreferences(ARQ, Context.MODE_PRIVATE).getString("token", "") ?: ""
+        return decifrar(c, "token", bruto)
+    }
     fun salvarToken(c: Context, token: String) {
-        c.getSharedPreferences(ARQ, Context.MODE_PRIVATE).edit().putString("token", token).apply()
+        c.getSharedPreferences(ARQ, Context.MODE_PRIVATE).edit().putString("token", cifrar(token)).apply()
     }
     fun sair(c: Context) {
         c.getSharedPreferences(ARQ, Context.MODE_PRIVATE).edit().clear().apply()

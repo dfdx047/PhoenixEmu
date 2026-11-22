@@ -1046,7 +1046,8 @@ fun TelaConfiguracoes(prefs: Preferencias) {
                                 mostrarDialogoRestaurar = false
                                 escopo.launch {
                                     prefs.limparOverrides(listOf(
-                                        "aj_global_escala", "aj_global_proporcao", "aj_global_mostrarFps",
+                                        "aj_global_escala", "aj_global_proporcao", "aj_global_filtro",
+                                        "aj_global_mostrarFps",
                                         "aj_global_volume", "aj_global_mudo", "aj_global_velocidadeFF",
                                         "aj_global_menu_estilo", "aj_global_menu_desfoque", "aj_global_menu_opacidade",
                                         "aj_global_menu_lado", "aj_global_menu_tema", "aj_global_menu_alca",
@@ -1640,7 +1641,9 @@ fun TelaRetroAchievements(jogos: List<Jogo>) {
                             color = MaterialTheme.colorScheme.tertiary
                         )
                         TextButton(onClick = {
-                            prefsRa.edit().clear().apply()
+                            com.dfdx047.phoenixemu.ra.RaCredenciais.sair(context)
+                            scope.launch(kotlinx.coroutines.Dispatchers.IO) { repoRa.limparCache() }
+                            resumos.clear()
                             logado = false
                             audio.playClick()
                         }) {

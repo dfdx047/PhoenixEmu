@@ -125,14 +125,19 @@ void lacoEmulador() {
                         std::string tmp = caminho + ".tmp";
                         FILE* f = fopen(tmp.c_str(), "wb");
                         if (f) {
-                            fwrite(buf.data(), 1, sz, f);
-                            fclose(f);
-                            rename(tmp.c_str(), caminho.c_str());
-                            g_pedido_estado_resultado.store(1, std::memory_order_relaxed);
-                            __android_log_print(ANDROID_LOG_INFO, "PhoenixLibretro", "estado: salvar ok (%zu bytes)", sz);
+                            size_t escritos = fwrite(buf.data(), 1, sz, f);
+                            int fechado = fclose(f);
+                            if (escritos == sz && fechado == 0 && rename(tmp.c_str(), caminho.c_str()) == 0) {
+                                g_pedido_estado_resultado.store(1, std::memory_order_relaxed);
+                                __android_log_print(ANDROID_LOG_INFO, "PhoenixLibretro", "estado: salvar ok (%zu bytes)", sz);
+                            } else {
+                                remove(tmp.c_str());
+                                g_pedido_estado_resultado.store(-1, std::memory_order_relaxed);
+                                __android_log_print(ANDROID_LOG_ERROR, "PhoenixLibretro", "estado: falha de I/O ao salvar");
+                            }
                         } else {
                             g_pedido_estado_resultado.store(-1, std::memory_order_relaxed);
-                            __android_log_print(ANDROID_LOG_INFO, "PhoenixLibretro", "estado: falhou");
+                            __android_log_print(ANDROID_LOG_ERROR, "PhoenixLibretro", "estado: falha ao abrir arquivo temporario");
                         }
                     } else {
                         g_pedido_estado_resultado.store(-1, std::memory_order_relaxed);
@@ -145,27 +150,27 @@ void lacoEmulador() {
             } else if (tipo_pedido == 2) {
                 FILE* f = fopen(caminho.c_str(), "rb");
                 if (f) {
-                    fseek(f, 0, SEEK_END);
-                    size_t sz = ftell(f);
-                    fseek(f, 0, SEEK_SET);
+                    long pos = (fseek(f, 0, SEEK_END) == 0) ? ftell(f) : -1L;
+                    bool seek_ok = (pos > 0) && (fseek(f, 0, SEEK_SET) == 0);
+                    size_t sz = seek_ok ? static_cast<size_t>(pos) : 0;
                     size_t min_sz = g_nucleo.tamanhoEstado();
-                    if (sz >= min_sz) {
+                    if (seek_ok && min_sz > 0 && sz >= min_sz) {
                         std::vector<uint8_t> buf(sz);
-                        fread(buf.data(), 1, sz, f);
+                        size_t lidos = fread(buf.data(), 1, sz, f);
                         fclose(f);
-                        if (g_nucleo.carregarEstado(buf.data(), sz)) {
+                        if (lidos == sz && g_nucleo.carregarEstado(buf.data(), sz)) {
                             g_rewind_head = 0;
                             g_rewind_count.store(0, std::memory_order_relaxed);
                             g_pedido_estado_resultado.store(2, std::memory_order_relaxed);
                             __android_log_print(ANDROID_LOG_INFO, "PhoenixLibretro", "estado: carregar ok");
                         } else {
                             g_pedido_estado_resultado.store(-2, std::memory_order_relaxed);
-                            __android_log_print(ANDROID_LOG_INFO, "PhoenixLibretro", "estado: falhou");
+                            __android_log_print(ANDROID_LOG_ERROR, "PhoenixLibretro", "estado: falhou ao carregar");
                         }
                     } else {
                         fclose(f);
                         g_pedido_estado_resultado.store(-2, std::memory_order_relaxed);
-                        __android_log_print(ANDROID_LOG_INFO, "PhoenixLibretro", "estado: falhou");
+                        __android_log_print(ANDROID_LOG_ERROR, "PhoenixLibretro", "estado: tamanho invalido (%ld)", pos);
                     }
                 } else {
                     g_pedido_estado_resultado.store(-2, std::memory_order_relaxed);
@@ -302,7 +307,6 @@ void lacoEmulador() {
                         } else {
                             // Buffer cheio: se durar mais de 100ms, forçar quadro
                             if (clock::now() - ultimo_quadro_forcado > std::chrono::milliseconds(100)) {
-                                __android_log_print(ANDROID_LOG_INFO, "PhoenixPausa", "audio buffer cheio >100ms, forçando quadro"); // TEMPORARIO: remover
                                 processar_quadro_normal();
                                 proximo_quadro = clock::now();
                                 ultimo_quadro_forcado = clock::now();
@@ -348,6 +352,51 @@ void lacoEmulador() {
     phoenix_audio_finalizar();
 }
 
+void inicializarRewind() {
+    g_rewind_slot_size = g_nucleo.tamanhoEstado();
+    if (g_rewind_slot_size > 0) {
+        constexpr size_t MAX_REWIND_BYTES = 128 * 1024 * 1024;
+        size_t n = std::min<size_t>(MAX_REWIND_BYTES / g_rewind_slot_size, 1200);
+        g_rewind_buffer.assign(n, std::vector<uint8_t>(g_rewind_slot_size));
+        double fps = g_nucleo.obterFps();
+        if (fps <= 0.0) fps = 60.0;
+        __android_log_print(ANDROID_LOG_INFO, "PhoenixLibretro", "rewind: %zu estados de %zu bytes (%.1f s)",
+                            n, g_rewind_slot_size, static_cast<double>(n) * 2.0 / fps);
+    } else {
+        g_rewind_buffer.clear();
+        g_rewind_buffer.shrink_to_fit();
+    }
+    g_rewind_head = 0;
+    g_rewind_count.store(0, std::memory_order_relaxed);
+}
+
+void liberarRewind() {
+    g_rewind_buffer.clear();
+    g_rewind_buffer.shrink_to_fit();
+    g_rewind_slot_size = 0;
+    g_rewind_head = 0;
+    g_rewind_count.store(0, std::memory_order_relaxed);
+}
+
+void pararLacoInterno() {
+    if (!g_rodando.load(std::memory_order_acquire)) return;
+
+    g_rodando.store(false, std::memory_order_release);
+    if (g_thread_emulador.joinable()) {
+        g_thread_emulador.join();
+    }
+
+    phoenix_video_finalizar();
+    if (g_janela != nullptr) {
+        ANativeWindow_release(g_janela);
+        g_janela = nullptr;
+    }
+
+    g_rewind_head = 0;
+    g_rewind_count.store(0, std::memory_order_relaxed);
+    g_pausado.store(false, std::memory_order_release);
+}
+
 } // namespace
 
 extern std::string g_system_dir;
@@ -382,27 +431,27 @@ Java_com_dfdx047_phoenixemu_emulator_NucleoLibretro_nativeCarregarJogo(
     const std::string caminhoStr = paraStdString(env, caminhoDoJogo);
     const char* caminho = caminhoStr.empty() ? nullptr : caminhoStr.c_str();
 
+    bool ok = false;
     if (rom == nullptr) {
-        return g_nucleo.carregarJogo(nullptr, 0, caminho) ? JNI_TRUE : JNI_FALSE;
-    }
-    jsize tamanho = env->GetArrayLength(rom);
-    void *dados = env->GetPrimitiveArrayCritical(rom, nullptr);
-    bool ok = g_nucleo.carregarJogo(dados, static_cast<size_t>(tamanho), caminho);
-    if (ok) {
-        g_rewind_slot_size = g_nucleo.tamanhoEstado();
-        if (g_rewind_slot_size > 0) {
-            size_t N = std::min<size_t>(128 * 1024 * 1024 / g_rewind_slot_size, 1200);
-            g_rewind_buffer.assign(N, std::vector<uint8_t>(g_rewind_slot_size));
-            double fps = g_nucleo.obterFps();
-            if (fps <= 0.0) fps = 60.0;
-            __android_log_print(ANDROID_LOG_INFO, "PhoenixLibretro", "rewind: %zu estados de %zu bytes (%.1f s)", N, g_rewind_slot_size, (double)N * 2.0 / fps);
-        } else {
-            g_rewind_buffer.clear();
+        ok = g_nucleo.carregarJogo(nullptr, 0, caminho);
+    } else {
+        jsize tamanho = env->GetArrayLength(rom);
+        if (tamanho > 0) {
+            std::vector<uint8_t> copia(static_cast<size_t>(tamanho));
+            env->GetByteArrayRegion(rom, 0, tamanho, reinterpret_cast<jbyte *>(copia.data()));
+            if (!env->ExceptionCheck()) {
+                ok = g_nucleo.carregarJogo(copia.data(), copia.size(), caminho);
+            } else {
+                env->ExceptionClear();
+            }
         }
-        g_rewind_head = 0;
-        g_rewind_count.store(0, std::memory_order_relaxed);
     }
-    env->ReleasePrimitiveArrayCritical(rom, dados, JNI_ABORT);
+
+    if (ok) {
+        inicializarRewind();
+    } else {
+        liberarRewind();
+    }
     return ok ? JNI_TRUE : JNI_FALSE;
 }
 
@@ -454,22 +503,7 @@ Java_com_dfdx047_phoenixemu_emulator_NucleoLibretro_nativeIniciarLaco(
 JNIEXPORT void JNICALL
 Java_com_dfdx047_phoenixemu_emulator_NucleoLibretro_nativePararLaco(
     JNIEnv * /*env*/, jobject /*thiz*/) {
-    if (!g_rodando.load(std::memory_order_acquire)) return;
-
-    g_rodando.store(false, std::memory_order_release);
-    if (g_thread_emulador.joinable()) {
-        g_thread_emulador.join();
-    }
-
-    phoenix_video_finalizar();
-    if (g_janela != nullptr) {
-        ANativeWindow_release(g_janela);
-        g_janela = nullptr;
-    }
-
-    g_rewind_head = 0;
-    g_rewind_count.store(0, std::memory_order_relaxed);
-    g_pausado.store(false, std::memory_order_release);
+    pararLacoInterno();
 }
 
 JNIEXPORT void JNICALL
@@ -483,13 +517,11 @@ Java_com_dfdx047_phoenixemu_emulator_NucleoLibretro_nativeDefinirPausa(
     if (p) {
         // transição false→true: pausar
         phoenix_audio_pausar();
-        __android_log_print(ANDROID_LOG_INFO, "PhoenixPausa", "pausa=true"); // TEMPORARIO: remover
     } else {
         // transição true→false: retomar/flush
         phoenix_audio_flush_ring_buffer();
         phoenix_audio_retomar();
         g_reiniciar_pacing.store(true, std::memory_order_release);
-        __android_log_print(ANDROID_LOG_INFO, "PhoenixPausa", "pausa=false"); // TEMPORARIO: remover
     }
 }
 
@@ -503,6 +535,8 @@ Java_com_dfdx047_phoenixemu_emulator_NucleoLibretro_nativeDefinirBotoes(
 JNIEXPORT void JNICALL
 Java_com_dfdx047_phoenixemu_emulator_NucleoLibretro_nativeDescarregar(
     JNIEnv * /*env*/, jobject /*thiz*/) {
+    pararLacoInterno();
+    liberarRewind();
     g_nucleo.descarregar();
 }
 

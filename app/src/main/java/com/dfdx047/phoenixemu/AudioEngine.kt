@@ -17,6 +17,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.launch
+import java.util.concurrent.ConcurrentHashMap
 
 /**
  * SFX e BGM da interface.
@@ -56,16 +57,16 @@ class AudioEngine private constructor(context: Context) : DefaultLifecycleObserv
         .setAudioAttributes(atributos)
         .build()
 
-    private var bgmPlayer: MediaPlayer? = null
-    private var idClique = 0
-    private var idSwipe = 0
-    private val carregados = HashSet<Int>()
+    @Volatile private var bgmPlayer: MediaPlayer? = null
+    @Volatile private var idClique = 0
+    @Volatile private var idSwipe = 0
+    private val carregados: MutableSet<Int> = ConcurrentHashMap.newKeySet()
 
     // ---- SFX novos (TAREFA A1) ----
-    private var idCapaPassa = 0
-    private var idTrocaAba = 0
-    private var idBoot = 0
-    private var idGameBoot = 0
+    @Volatile private var idCapaPassa = 0
+    @Volatile private var idTrocaAba = 0
+    @Volatile private var idBoot = 0
+    @Volatile private var idGameBoot = 0
 
     /** Instante da última execução de CAPA_PASSA (throttle 60 ms). */
     private var ultimoCapaPassa = 0L
@@ -111,17 +112,24 @@ class AudioEngine private constructor(context: Context) : DefaultLifecycleObserv
         soundPool.setOnLoadCompleteListener { _, sampleId, status ->
             if (status == 0) carregados += sampleId
         }
-        try {
-            idClique = soundPool.load(app, R.raw.sfx_click, 1)
-            idSwipe = soundPool.load(app, R.raw.sfx_swipe, 1)
-            // ajuste de ouvido — volumes relativos ao sfxVolume geral
-            idCapaPassa = soundPool.load(app, R.raw.sfx_capa_passa, 1)
-            idTrocaAba  = soundPool.load(app, R.raw.sfx_troca_aba, 1)
-            idBoot      = soundPool.load(app, R.raw.sfx_boot, 1)
-            idGameBoot  = soundPool.load(app, R.raw.sfx_game_boot, 1)
-            bgmPlayer = MediaPlayer.create(app, R.raw.bgm_menu)?.apply { isLooping = true }
-        } catch (e: Exception) {
-            Log.e(TAG, "Falha ao carregar os audios de res/raw", e)
+        // Carrega os recursos em IO para nao bloquear Application.onCreate() (StrictMode).
+        escopo.launch(Dispatchers.IO) {
+            try {
+                idClique = soundPool.load(app, R.raw.sfx_click, 1)
+                idSwipe = soundPool.load(app, R.raw.sfx_swipe, 1)
+                idCapaPassa = soundPool.load(app, R.raw.sfx_capa_passa, 1)
+                idTrocaAba  = soundPool.load(app, R.raw.sfx_troca_aba, 1)
+                idBoot      = soundPool.load(app, R.raw.sfx_boot, 1)
+                idGameBoot  = soundPool.load(app, R.raw.sfx_game_boot, 1)
+                val player = MediaPlayer.create(app, R.raw.bgm_menu)?.apply {
+                    isLooping = true
+                    setVolume(bgmVolume, bgmVolume)
+                }
+                bgmPlayer = player
+                escopo.launch { aplicarEstadoBgm() }
+            } catch (e: Exception) {
+                Log.e(TAG, "Falha ao carregar os audios de res/raw", e)
+            }
         }
 
         // Um unico coletor para os quatro ajustes.

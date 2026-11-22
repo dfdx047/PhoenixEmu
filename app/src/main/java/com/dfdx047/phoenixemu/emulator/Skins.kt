@@ -60,7 +60,7 @@ fun desenharRotulo(
     escopoCanvas.drawText(
         textMeasurer = textMeasurer,
         text = textToDraw,
-        style = textStyle.copy(color = corTexto.copy(alpha = kotlin.math.max(opacidade, 0.6f))),
+        style = textStyle.copy(color = corTexto.copy(alpha = kotlin.math.max(opacidade, 0.6f).coerceIn(0f, 1f))),
         topLeft = textOffset
     )
 }
@@ -84,11 +84,11 @@ object SkinClassica8Bit : SkinDeControles {
         textMeasurer: TextMeasurer,
         textStyle: TextStyle
     ) {
-        val alpha = opacidade
+        val alpha = opacidade.coerceIn(0f, 1f)
         val corFundo = (if (pressionado) corAcento else corBase).copy(alpha = alpha)
-        val contorno = corBase.copy(alpha = alpha + 0.2f)
+        val contorno = corBase.copy(alpha = (alpha + 0.2f).coerceIn(0f, 1f))
         val escala = if (pressionado) 0.94f else 1f
-        val corTexto = (if (pressionado) corBase else corAcento).copy(alpha = alpha + 0.4f)
+        val corTexto = (if (pressionado) corBase else corAcento).copy(alpha = (alpha + 0.4f).coerceIn(0f, 1f))
 
         with(escopoCanvas) {
             if (controle.tipo == TipoControleNaTela.DPAD) {
@@ -132,11 +132,11 @@ object SkinClassica16Bit : SkinDeControles {
         textMeasurer: TextMeasurer,
         textStyle: TextStyle
     ) {
-        val alpha = opacidade
+        val alpha = opacidade.coerceIn(0f, 1f)
         val corFundo = (if (pressionado) corAcento else corBase).copy(alpha = alpha)
-        val contorno = corBase.copy(alpha = alpha + 0.2f)
+        val contorno = corBase.copy(alpha = (alpha + 0.2f).coerceIn(0f, 1f))
         val escala = if (pressionado) 0.94f else 1f
-        val corTexto = (if (pressionado) corBase else corAcento).copy(alpha = alpha + 0.4f)
+        val corTexto = (if (pressionado) corBase else corAcento).copy(alpha = (alpha + 0.4f).coerceIn(0f, 1f))
 
         with(escopoCanvas) {
             if (controle.tipo == TipoControleNaTela.DPAD) {
@@ -182,11 +182,11 @@ object SkinModerna : SkinDeControles {
         textMeasurer: TextMeasurer,
         textStyle: TextStyle
     ) {
-        val alpha = opacidade
-        val corFundo = Color.Black.copy(alpha = alpha * 0.6f)
-        val contorno = corBase.copy(alpha = alpha + 0.3f)
+        val alpha = opacidade.coerceIn(0f, 1f)
+        val corFundo = Color.Black.copy(alpha = (alpha * 0.6f).coerceIn(0f, 1f))
+        val contorno = corBase.copy(alpha = (alpha + 0.3f).coerceIn(0f, 1f))
         val escala = if (pressionado) 0.94f else 1f
-        val corTexto = Color.White.copy(alpha = alpha + 0.4f)
+        val corTexto = Color.White.copy(alpha = (alpha + 0.4f).coerceIn(0f, 1f))
 
         with(escopoCanvas) {
             if (controle.tipo == TipoControleNaTela.DPAD) {

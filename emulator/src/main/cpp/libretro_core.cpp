@@ -130,8 +130,15 @@ void LibretroCore::rodarQuadro() {
 }
 
 bool LibretroCore::carregarJogo(const void* dados, size_t tamanho, const char* caminho) {
+    if (!load_game_) return false;
+    if (jogo_carregado_ && unload_game_) {
+        unload_game_();
+        jogo_carregado_ = false;
+    }
     if (dados == nullptr && tamanho == 0 && (caminho == nullptr || caminho[0] == '\0')) {
-        return load_game_(nullptr);
+        bool ok = load_game_(nullptr);
+        jogo_carregado_ = ok;
+        return ok;
     }
     retro_game_info info = {};
     info.path = caminho;
@@ -139,6 +146,7 @@ bool LibretroCore::carregarJogo(const void* dados, size_t tamanho, const char* c
     info.size = tamanho;
     info.meta = "";
     bool ok = load_game_(&info);
+    jogo_carregado_ = ok;
     if (ok && serialize_size_) {
         size_t sz = serialize_size_();
         LOGI("serialize_size: %zu", sz);
@@ -231,15 +239,22 @@ void LibretroCore::carregarSram(const std::string &caminho) {
 }
 
 void LibretroCore::salvarSram(const std::string &caminho) {
-    if (!get_memory_size_ || !get_memory_data_) return;
+    if (!get_memory_size_ || !get_memory_data_ || caminho.empty()) return;
     size_t size = get_memory_size_(RETRO_MEMORY_SAVE_RAM);
     void *data = get_memory_data_(RETRO_MEMORY_SAVE_RAM);
     if (size == 0 || data == nullptr) return;
 
-    FILE *f = fopen(caminho.c_str(), "wb");
-    if (f) {
-        fwrite(data, 1, size, f);
-        fclose(f);
+    std::string tmp = caminho + ".tmp";
+    FILE *f = fopen(tmp.c_str(), "wb");
+    if (!f) {
+        LOGE("Falha ao abrir SRAM temporaria: %s", tmp.c_str());
+        return;
+    }
+    size_t escritos = fwrite(data, 1, size, f);
+    int fechado = fclose(f);
+    if (escritos != size || fechado != 0 || rename(tmp.c_str(), caminho.c_str()) != 0) {
+        LOGE("Falha ao gravar SRAM atomica: %s", caminho.c_str());
+        remove(tmp.c_str());
     }
 }
 
@@ -284,6 +299,10 @@ bool LibretroCore::carregarEstado(const void *buf, size_t tam) const {
 
 void LibretroCore::descarregar() {
     if (handle_ == nullptr) return;
+    if (jogo_carregado_ && unload_game_ != nullptr) {
+        unload_game_();
+    }
+    jogo_carregado_ = false;
     if (deinit_ != nullptr) deinit_();
 
     dlclose(handle_);

@@ -24,7 +24,9 @@ import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.aspectRatio
+import androidx.compose.foundation.layout.displayCutout
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -32,6 +34,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -404,8 +407,6 @@ private fun MenuDePausaInner(
     val superficieLuminancia = corSuperficie.luminance()
     val ehPainelEscuro = superficieLuminancia < 0.5f
 
-    Log.d("PhoenixMenu", "abriu acabamento=$acabamento opacidade=$menuOpacidade desfoque=$menuDesfoque reduzirEfeitos=$reduzirEfeitos amoled=$amoled escuro=$ehPainelEscuro superficie=0x${corSuperficie.value.toString(16).padStart(8, '0').uppercase()} destaque=0x${corPrimaria.value.toString(16).padStart(8, '0').uppercase()}")
-
     val paleta = if (menuTema) {
         derivarPaletaFinal(temaCorPrimaria, temaCorSuperficie, temaCorTexto, acabamento, menuOpacidade, amoled, ehPainelEscuro)
     } else {
@@ -419,13 +420,6 @@ private fun MenuDePausaInner(
             fundoPainel = Color.Black.copy(alpha = menuOpacidade),
         )
     }
-
-    // Log do design para debug
-    val modo = if (acabamento.uppercase() == "SOLIDO") "SOLIDO" else "VIDRO"
-    val baseHex = String.format("#%08X", (0L or paleta.fundoPainel.value.toLong()).and(0xFFFFFFFFL))
-    val destaqueHex = String.format("#%08X", paleta.destaque.value.toLong().and(0xFFFFFFFFL))
-    val alpha = menuOpacidade.coerceIn(0.30f, 1.0f)
-    Log.d("PhoenixAjustes", "design=$modo base=$baseHex destaque=$destaqueHex alpha=$alpha")
 
     val config = LocalConfiguration.current
     val telaLarguraDp = config.screenWidthDp.dp
@@ -495,7 +489,7 @@ private fun MenuDePausaInner(
                 surface = paleta.fundoPainel,
                 onSurface = paleta.texto,
             )) {
-                Column(modifier = Modifier.fillMaxSize()) {
+                Column(modifier = Modifier.fillMaxSize().windowInsetsPadding(WindowInsets.displayCutout)) {
 
                     // — Cabeçalho fixo —
                     CabecalhoPausa(
@@ -776,7 +770,7 @@ private fun BarraDeAbas(
         TabItem(AbaDoMenu.CONTROLES, R.string.pause_aba_controles, Icons.Outlined.Gamepad),
     ) + (if (EstadoRaJogo.configurado) listOf(TabItem(AbaDoMenu.CONQUISTAS, R.string.pause_aba_conquistas, Icons.Outlined.EmojiEvents)) else emptyList())
 
-    var abaIndex by remember { mutableIntStateOf(abas.indexOfFirst { it.aba == abaAtual }.takeIf { it >= 0 } ?: 0) }
+    val abaIndex = abas.indexOfFirst { it.aba == abaAtual }.takeIf { it >= 0 } ?: 0
 
     val corTexto = paleta.texto
     val corDestaque = paleta.destaque
@@ -811,9 +805,7 @@ private fun BarraDeAbas(
                         .clip(cantos)
                         .background(bgAnim)
                         .clickable(onClick = {
-                            abaIndex = index
                             aoMudarAba(item.aba)
-                            Log.d("PhoenixAjustes", "aba=$abaIndex")
                         }),
                     contentAlignment = Alignment.Center,
                 ) {

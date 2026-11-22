@@ -3,6 +3,7 @@ package com.dfdx047.phoenixemu.emulator
 import android.view.HapticFeedbackConstants
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.displayCutoutPadding
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.runtime.Composable
@@ -71,6 +72,7 @@ fun OverlayDeToque(
     Box(
         modifier = Modifier
             .fillMaxSize()
+            .displayCutoutPadding()
             .padding(config.margemSeguraDp.dp)
             .pointerInput(config) {
                 awaitPointerEventScope {
@@ -161,8 +163,7 @@ fun OverlayDeToque(
                         val novosPressionados = novaMascara and touchMaskAtual.inv()
                         if ((novosPressionados != 0 || atalhosApertados.isNotEmpty()) && config.hapticoAtivo) {
                             view.performHapticFeedback(
-                                if (config.hapticoIntensidade > 1) HapticFeedbackConstants.KEYBOARD_PRESS else HapticFeedbackConstants.VIRTUAL_KEY,
-                                HapticFeedbackConstants.FLAG_IGNORE_GLOBAL_SETTING
+                                if (config.hapticoIntensidade > 1) HapticFeedbackConstants.KEYBOARD_PRESS else HapticFeedbackConstants.VIRTUAL_KEY
                             )
                         }
 

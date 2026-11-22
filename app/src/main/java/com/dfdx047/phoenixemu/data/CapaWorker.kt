@@ -48,8 +48,12 @@ class CapaWorker(
 
         setProgress(workDataOf(Trabalhos.CHAVE_FEITOS to 0, Trabalhos.CHAVE_TOTAL to pendentes.size))
 
+        var interrompido = false
         for (lote in pendentes.chunked(LOTE)) {
-            if (isStopped) break
+            if (isStopped) {
+                interrompido = true
+                break
+            }
 
             coroutineScope {
                 lote.map { jogo ->
@@ -66,7 +70,7 @@ class CapaWorker(
             )
         }
 
-        return Result.success()
+        return if (interrompido && feitos < pendentes.size) Result.retry() else Result.success()
     }
 
     private suspend fun tratar(store: BibliotecaStore, jogo: Jogo, pasta: File) {

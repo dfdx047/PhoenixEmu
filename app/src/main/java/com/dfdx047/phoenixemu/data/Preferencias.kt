@@ -338,14 +338,24 @@ class Preferencias private constructor(context: Context) {
 
     fun restaurarOverlay() = editar { it.remove(K_OVERLAY) }
     
+    private fun lerAtalhos(prefs: Preferences): ConfigDeAtalhos {
+        val json = prefs[K_ATALHOS] ?: return ConfigDeAtalhos.padrao()
+        return runCatching {
+            val cru = gson.fromJson(json, ConfigDeAtalhos::class.java)
+            val padrao = ConfigDeAtalhos.padrao()
+            val validas = cru.acoes.filterKeys { k -> AcaoAtalho.entries.any { it.name == k } }
+            cru.copy(acoes = padrao.acoes + validas)
+        }.getOrDefault(ConfigDeAtalhos.padrao())
+    }
+
     fun definirHotkey(codigo: Int) = editar { prefs ->
-        val atual = atalhos.value
+        val atual = lerAtalhos(prefs)
         val nova = atual.copy(hotkey = codigo)
         prefs[K_ATALHOS] = gson.toJson(nova)
     }
 
     fun definirAtalho(acao: AcaoAtalho, codigo: Int) = editar { prefs ->
-        val atual = atalhos.value
+        val atual = lerAtalhos(prefs)
         val acoes = atual.acoes.toMutableMap()
         val atalhoAntigo = acoes[acao.name] ?: AtalhoDaAcao()
         
@@ -365,7 +375,7 @@ class Preferencias private constructor(context: Context) {
     }
 
     fun definirUsarHotkey(acao: AcaoAtalho, usar: Boolean) = editar { prefs ->
-        val atual = atalhos.value
+        val atual = lerAtalhos(prefs)
         val acoes = atual.acoes.toMutableMap()
         val atalhoAntigo = acoes[acao.name] ?: AtalhoDaAcao()
         
@@ -512,15 +522,13 @@ class Preferencias private constructor(context: Context) {
     }
 
     suspend fun apagarTodosOsAjustesPorJogo() {
-        val prefs = app.armazem.data.first()
-        val chaves = prefs.asMap().keys.filter { it.name.startsWith("aj_jogo_") }
-        val count = chaves.size
-        if (count > 0) {
-            editar { p ->
-                for (k in chaves) {
-                    @Suppress("UNCHECKED_CAST")
-                    p.remove(k as Preferences.Key<Any>)
-                }
+        var count = 0
+        app.armazem.edit { p ->
+            val chaves = p.asMap().keys.filter { it.name.startsWith("aj_jogo_") }.toList()
+            count = chaves.size
+            for (k in chaves) {
+                @Suppress("UNCHECKED_CAST")
+                p.remove(k as Preferences.Key<Any>)
             }
         }
         Log.d("PhoenixAjustes", "apagarTodosOsAjustesPorJogo: removidas $count chaves aj_jogo_*")

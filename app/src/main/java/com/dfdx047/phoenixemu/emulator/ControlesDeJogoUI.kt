@@ -85,18 +85,20 @@ internal fun ConteudoAbaControles(
     val corDestaque = paleta.destaque
     val corContorno = paleta.contorno
 
-    var confirmarRestaurar by remember { mutableStateOf(false) }
-    var confirmarJob: kotlinx.coroutines.Job? by remember { mutableStateOf(null) }
+    var confirmarRestaurarAtalhos by remember { mutableStateOf(false) }
+    var confirmarRestaurarBotoes by remember { mutableStateOf(false) }
 
-    LaunchedEffect(capturando) {
-        Log.d("PhoenixAjustes", "aba controles capturando=$capturando hotkey=${atalhosCfg.hotkey}")
+    LaunchedEffect(confirmarRestaurarAtalhos) {
+        if (confirmarRestaurarAtalhos) {
+            delay(3000)
+            confirmarRestaurarAtalhos = false
+        }
     }
 
-    LaunchedEffect(confirmarRestaurar) {
-        if (confirmarRestaurar) {
+    LaunchedEffect(confirmarRestaurarBotoes) {
+        if (confirmarRestaurarBotoes) {
             delay(3000)
-            confirmarRestaurar = false
-            confirmarJob = null
+            confirmarRestaurarBotoes = false
         }
     }
 
@@ -261,13 +263,13 @@ internal fun ConteudoAbaControles(
             contentAlignment = Alignment.Center,
         ) {
             BotaoRestaurar(
-                confirmar = confirmarRestaurar,
+                confirmar = confirmarRestaurarAtalhos,
                 corTexto = corTexto,
                 corDestaque = corDestaque,
                 corContorno = corContorno,
-                aoConfirmar1 = { confirmarRestaurar = true },
+                aoConfirmar1 = { confirmarRestaurarAtalhos = true },
                 aoConfirmar2 = {
-                    confirmarRestaurar = false
+                    confirmarRestaurarAtalhos = false
                     aoRestaurar()
                 },
             )
@@ -283,95 +285,49 @@ internal fun ConteudoAbaControles(
 
         val botoesJogo = when (plataforma.uppercase()) {
             "NES" -> listOf(
-                Triple("D-pad", 0, true),
-                Triple("A", 4, false),
-                Triple("B", 5, false),
-                Triple("SELECT", 10, false),
-                Triple("START", 11, false),
+                Triple("D-pad ↑", 0, "CIMA"),
+                Triple("D-pad ↓", 1, "BAIXO"),
+                Triple("D-pad ←", 2, "ESQUERDA"),
+                Triple("D-pad →", 3, "DIREITA"),
+                Triple("A", 4, "A"),
+                Triple("B", 5, "B"),
+                Triple("SELECT", 10, "SELECT"),
+                Triple("START", 11, "START"),
             )
             else -> listOf(
-                Triple("D-pad ↑", 0, true),
-                Triple("D-pad ↓", 1, true),
-                Triple("D-pad ←", 2, true),
-                Triple("D-pad →", 3, true),
-                Triple("A", 4, false),
-                Triple("B", 5, false),
-                Triple("X", 6, false),
-                Triple("Y", 7, false),
-                Triple("L", 8, false),
-                Triple("R", 9, false),
-                Triple("SELECT", 10, false),
-                Triple("START", 11, false),
+                Triple("D-pad ↑", 0, "CIMA"),
+                Triple("D-pad ↓", 1, "BAIXO"),
+                Triple("D-pad ←", 2, "ESQUERDA"),
+                Triple("D-pad →", 3, "DIREITA"),
+                Triple("A", 4, "A"),
+                Triple("B", 5, "B"),
+                Triple("X", 6, "X"),
+                Triple("Y", 7, "Y"),
+                Triple("L", 8, "L"),
+                Triple("R", 9, "R"),
+                Triple("SELECT", 10, "SELECT"),
+                Triple("START", 11, "START"),
             )
         }
 
-        for (bt in botoesJogo) {
-            val rotulo = bt.first
-            val indiceMap = bt.second
-            val isAxisGroup = bt.third
-
-            if (isAxisGroup) {
-                if (rotulo == "D-pad") {
-                    val nomeBotaoVirtual = "CIMA"
-                    val textoCapturado = if (mapeamento[0] != BotaoVirtual.CIMA.padrao) {
-                        nomeDaTecla(mapeamento[0])
-                    } else {
-                        ctx.getString(R.string.controles_indisponivel)
-                    }
-
-                    LinhaBotaoEditavel(
-                        rotulo = "D-pad (Cima)",
-                        textoCapturado = textoCapturado,
-                        capturando = capturando == "BTN_$nomeBotaoVirtual",
-                        corTexto = corTexto,
-                        corDestaque = corDestaque,
-                        corContorno = corContorno,
-                        aoCapturar = { aoCapturar("BTN_$nomeBotaoVirtual") },
-                        aoCancelar = aoCancelarCaptura,
-                    )
-                } else {
-                    val nomeBotaoVirtual = when (rotulo) {
-                        "D-pad ↑" -> "CIMA"
-                        "D-pad ↓" -> "BAIXO"
-                        "D-pad ←" -> "ESQUERDA"
-                        "D-pad →" -> "DIREITA"
-                        else -> "CIMA"
-                    }
-                    val textoCapturado = if (mapeamento[indiceMap] != BotaoVirtual.valueOf(nomeBotaoVirtual).padrao) {
-                        nomeDaTecla(mapeamento[indiceMap])
-                    } else {
-                        ctx.getString(R.string.controles_indisponivel)
-                    }
-                    LinhaBotaoEditavel(
-                        rotulo = rotulo,
-                        textoCapturado = textoCapturado,
-                        capturando = capturando == "BTN_$nomeBotaoVirtual",
-                        corTexto = corTexto,
-                        corDestaque = corDestaque,
-                        corContorno = corContorno,
-                        aoCapturar = { aoCapturar("BTN_$nomeBotaoVirtual") },
-                        aoCancelar = aoCancelarCaptura,
-                    )
-                }
+        for ((rotulo, indiceMap, nomeBotaoVirtual) in botoesJogo) {
+            val codigo = mapeamento.getOrElse(indiceMap) { 0 }
+            val textoCapturado = if (codigo != 0) {
+                nomeDaTecla(codigo)
             } else {
-                val nomeBotaoVirtual = rotulo
-                val textoCapturado = if (mapeamento[indiceMap] != BotaoVirtual.valueOf(nomeBotaoVirtual).padrao) {
-                    nomeDaTecla(mapeamento[indiceMap])
-                } else {
-                    ctx.getString(R.string.controles_indisponivel)
-                }
-
-                LinhaBotaoEditavel(
-                    rotulo = rotulo,
-                    textoCapturado = textoCapturado,
-                    capturando = capturando == "BTN_$nomeBotaoVirtual",
-                    corTexto = corTexto,
-                    corDestaque = corDestaque,
-                    corContorno = corContorno,
-                    aoCapturar = { aoCapturar("BTN_$nomeBotaoVirtual") },
-                    aoCancelar = aoCancelarCaptura,
-                )
+                ctx.getString(R.string.controles_indisponivel)
             }
+
+            LinhaBotaoEditavel(
+                rotulo = rotulo,
+                textoCapturado = textoCapturado,
+                capturando = capturando == "BTN_$nomeBotaoVirtual",
+                corTexto = corTexto,
+                corDestaque = corDestaque,
+                corContorno = corContorno,
+                aoCapturar = { aoCapturar("BTN_$nomeBotaoVirtual") },
+                aoCancelar = aoCancelarCaptura,
+            )
         }
 
         Box(
@@ -379,13 +335,13 @@ internal fun ConteudoAbaControles(
             contentAlignment = Alignment.Center,
         ) {
             BotaoRestaurar(
-                confirmar = confirmarRestaurar,
+                confirmar = confirmarRestaurarBotoes,
                 corTexto = corTexto,
                 corDestaque = corDestaque,
                 corContorno = corContorno,
-                aoConfirmar1 = { confirmarRestaurar = true },
+                aoConfirmar1 = { confirmarRestaurarBotoes = true },
                 aoConfirmar2 = {
-                    confirmarRestaurar = false
+                    confirmarRestaurarBotoes = false
                     aoRestaurarBotoes()
                 },
                 textoBase = stringResource(R.string.controles_restaurar_botoes)

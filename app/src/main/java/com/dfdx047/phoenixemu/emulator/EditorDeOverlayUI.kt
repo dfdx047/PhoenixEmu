@@ -5,7 +5,9 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectDragGestures
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.*
@@ -164,13 +166,15 @@ fun EditorDeOverlayUI(
                 false
             }
     ) {
-        // Toolbar superior
+        // Toolbar superior (respeitando recorte de tela e com scroll horizontal em telas estreitas)
         Row(
             modifier = Modifier
                 .fillMaxWidth()
                 .background(Color.Black.copy(alpha = 0.7f))
+                .displayCutoutPadding()
+                .horizontalScroll(rememberScrollState())
                 .padding(8.dp),
-            horizontalArrangement = Arrangement.SpaceBetween,
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -215,11 +219,12 @@ fun EditorDeOverlayUI(
             }
         }
 
-        // Area de edição (o canvas)
+        // Area de edição (o canvas) — usa exatamente os mesmos insets do OverlayDeToque para alinhamento 1:1
         Box(
             modifier = Modifier
                 .fillMaxSize()
-                .padding(top = 60.dp) // Abaixo da toolbar
+                .displayCutoutPadding()
+                .padding(configInicial.margemSeguraDp.dp)
         ) {
             // Desenhar grid se ativado
             if (state.snapToGrid) {

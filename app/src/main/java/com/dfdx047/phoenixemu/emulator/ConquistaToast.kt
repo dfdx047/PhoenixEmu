@@ -14,6 +14,7 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.BoxScope
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.displayCutoutPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.widthIn
@@ -99,7 +100,7 @@ class SomDeConquista(contexto: Context) {
 private fun vibrarConquista(view: View) {
     val tipo = if (Build.VERSION.SDK_INT >= 30) HapticFeedbackConstants.CONFIRM
     else HapticFeedbackConstants.LONG_PRESS
-    view.performHapticFeedback(tipo, HapticFeedbackConstants.FLAG_IGNORE_GLOBAL_SETTING)
+    view.performHapticFeedback(tipo)
 }
 
 /**
@@ -157,6 +158,7 @@ fun BoxScope.PopupDeConquista(
         desfocar = false,
         modifier = Modifier
             .align(alinhamento)
+            .displayCutoutPadding()
             .padding(16.dp)
             .widthIn(max = 380.dp)
             .graphicsLayer {

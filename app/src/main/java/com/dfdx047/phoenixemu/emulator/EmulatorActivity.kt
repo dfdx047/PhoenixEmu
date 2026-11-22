@@ -165,13 +165,13 @@ class EmulatorActivity : ComponentActivity() {
 
     private fun salvarOverlay(nova: OverlayConfigNova) {
         overlayConfig = nova
-        salvarAjuste("overlay_controle", Gson().toJson(nova), "string", false)
+        val json = Gson().toJson(nova)
         val intent = Intent("com.dfdx047.phoenixemu.AJUSTE_MUDOU").apply {
             setPackage(packageName)
             putExtra("acao", "overlay_salvar")
             putExtra("escopo", if (ajustes.isSomenteEsteJogo()) "JOGO" else "GLOBAL")
             putExtra("idDoJogo", idDoJogoAtual)
-            putExtra("json", Gson().toJson(nova))
+            putExtra("json", json)
         }
         sendBroadcast(intent)
         editandoOverlay = false
@@ -419,7 +419,7 @@ class EmulatorActivity : ComponentActivity() {
                 }
             }
             Acao.CARREGAR_ESTADO -> {
-                if (hardcoreAtivo) mostrarAviso(getString(R.string.conq_hardcore_bloqueado)) else gerenciadorDeEstados?.carregar(slotAtual) { res ->
+                if (hardcoreAtivo) mostrarAviso(ctx.getString(R.string.conq_hardcore_bloqueado)) else gerenciadorDeEstados?.carregar(slotAtual) { res ->
                     when (res) {
                         ResultadoDoEstado.OK -> mostrarAviso(ctx.getString(R.string.jogo_aviso_estado_carregado, slotAtual))
                         ResultadoDoEstado.VAZIO -> mostrarAviso(ctx.getString(R.string.jogo_aviso_slot_vazio, slotAtual))
@@ -497,11 +497,11 @@ class EmulatorActivity : ComponentActivity() {
         
         onBackPressedDispatcher.addCallback(this, object : OnBackPressedCallback(true) {
             override fun handleOnBackPressed() {
-                Log.i("PhoenixInput", "voltar do sistema")
-                if (menuVoltar) {
-                    alternarMenu()
-                } else {
-                    finish()
+                when {
+                    capturaAtalho != null -> capturaAtalho = null
+                    editandoOverlay -> editandoOverlay = false
+                    menuVoltar -> alternarMenu()
+                    else -> finish()
                 }
             }
         })
@@ -678,7 +678,9 @@ class EmulatorActivity : ComponentActivity() {
                                     override fun surfaceCreated(holder: SurfaceHolder) {
                                         activeSurfaceHolder = holder
                                         nucleo.definirFiltroVideo(ajustes.filtro.modo)
-                                        nucleo.iniciar(holder.surface)
+                                        if (!isPaused) {
+                                            nucleo.iniciar(holder.surface)
+                                        }
                                     }
 
                                     override fun surfaceChanged(holder: SurfaceHolder, format: Int, width: Int, height: Int) {}
@@ -738,6 +740,21 @@ class EmulatorActivity : ComponentActivity() {
                         }
                     )
 
+                    if (!isPaused && menuGesto) {
+                        Box(
+                            modifier = Modifier
+                                .align(if (menuLado == "DIREITA") Alignment.CenterEnd else Alignment.CenterStart)
+                                .width(24.dp)
+                                .fillMaxHeight()
+                                .pointerInput(Unit) {
+                                    detectHorizontalDragGestures { _, dragAmount ->
+                                        if (menuLado == "DIREITA" && dragAmount < -20f) alternarMenu()
+                                        else if (menuLado != "DIREITA" && dragAmount > 20f) alternarMenu()
+                                    }
+                                }
+                        )
+                    }
+
                     OverlayDeToque(
                         config = overlayConfig,
                         visivel = (!isPaused || !overlayConfig.ocultarNoMenu) &&
@@ -773,21 +790,6 @@ class EmulatorActivity : ComponentActivity() {
                                 .height(80.dp)
                                 .background(Color.White.copy(alpha = 0.15f), if (menuLado == "DIREITA") RoundedCornerShape(topStart = 10.dp, bottomStart = 10.dp) else RoundedCornerShape(topEnd = 10.dp, bottomEnd = 10.dp))
                                 .clickable(onClick = { alternarMenu() })
-                        )
-                    }
-                    
-                    if (!isPaused && menuGesto) {
-                        Box(
-                            modifier = Modifier
-                                .align(if (menuLado == "DIREITA") Alignment.CenterEnd else Alignment.CenterStart)
-                                .width(32.dp)
-                                .fillMaxHeight()
-                                .pointerInput(Unit) {
-                                    detectHorizontalDragGestures { _, dragAmount ->
-                                        if (menuLado == "DIREITA" && dragAmount < -20f) alternarMenu()
-                                        else if (menuLado != "DIREITA" && dragAmount > 20f) alternarMenu()
-                                    }
-                                }
                         )
                     }
 
@@ -835,29 +837,21 @@ class EmulatorActivity : ComponentActivity() {
                                 capturaAtalho = null
                             },
                             aoLimparAtalho = { acao ->
-                                atalhosCfg = atalhosCfg.comSemAtalho(acao)
-                                aplicarNoMotor()
+                                limparAtalho(acao)
                                 atalhosJson = Gson().toJson(atalhosCfg)
-                                salvarAjuste("atalhos_json", atalhosJson, "string", false)
                             },
                             aoLimparHotkey = {
-                                atalhosCfg = atalhosCfg.comHotkey(0)
-                                aplicarNoMotor()
+                                definirHotkeyNoJogo(0)
                                 atalhosJson = Gson().toJson(atalhosCfg)
-                                salvarAjuste("atalhos_json", atalhosJson, "string", false)
                             },
                             aoAlternarHotkey = { acao, usar ->
-                                atalhosCfg = atalhosCfg.comUsarHotkey(acao, usar)
-                                aplicarNoMotor()
+                                alternarUsarHotkey(acao, usar)
                                 atalhosJson = Gson().toJson(atalhosCfg)
-                                salvarAjuste("atalhos_json", atalhosJson, "string", false)
                             },
                             aoRestaurarAtalhos = {
                                 val ctx = contextoLocalizado ?: this@EmulatorActivity
-                                atalhosCfg = atalhosCfg.restaurarPadrao()
+                                restaurarAtalhosNoJogo()
                                 atalhosJson = Gson().toJson(atalhosCfg)
-                                salvarAjuste("atalhos_json", atalhosJson, "string", false)
-                                aplicarNoMotor()
                                 mensagemFeedback = ctx.getString(R.string.atalhos_restaurado)
                             },
                             aoRestaurarBotoes = { restaurarBotoesNoJogo() },
@@ -878,10 +872,10 @@ class EmulatorActivity : ComponentActivity() {
                                 }
                             },
                             aoCarregarEstado = { slot ->
+                                val ctx = contextoLocalizado ?: this@EmulatorActivity
                                 if (hardcoreAtivo) {
-                                    mensagemFeedback = getString(R.string.conq_hardcore_bloqueado)
+                                    mensagemFeedback = ctx.getString(R.string.conq_hardcore_bloqueado)
                                 } else gerenciadorDeEstados?.carregar(slot) { res ->
-                                    val ctx = contextoLocalizado ?: this@EmulatorActivity
                                     if (res == ResultadoDoEstado.OK) {
                                         mensagemFeedback = ""
                                         isPaused = false
@@ -1040,6 +1034,9 @@ class EmulatorActivity : ComponentActivity() {
 
     override fun onResume() {
         super.onResume()
+        if (isJogoReal) {
+            autosavePendente = true
+        }
         if (!isPaused) {
             activeSurfaceHolder?.surface?.let {
                 if (it.isValid) {
@@ -1095,11 +1092,12 @@ class EmulatorActivity : ComponentActivity() {
                 principal.post {
                     EstadoRaJogo.definirResumo(titulo, total, desbloqueadas, pontosTotal, pontosGanhos)
                     if (total > 0) {
+                        val ctx = contextoLocalizado ?: this@EmulatorActivity
                         filaConquistasAct.add(
                             ConquistaAviso(
                                 titulo,
-                                getString(R.string.conq_aviso_inicio_texto, desbloqueadas, total, pontosGanhos, pontosTotal) +
-                                    (if (hardcoreAtivo) " · " + getString(R.string.conq_hardcore_nome) else ""),
+                                ctx.getString(R.string.conq_aviso_inicio_texto, desbloqueadas, total, pontosGanhos, pontosTotal) +
+                                    (if (hardcoreAtivo) " · " + ctx.getString(R.string.conq_hardcore_nome) else ""),
                                 0, RaNativo.capa().ifBlank { null }, informativo = true
                             )
                         )
@@ -1109,7 +1107,8 @@ class EmulatorActivity : ComponentActivity() {
             override fun aoErro(codigo: Int, mensagem: String) {
                 android.util.Log.w("PhoenixRA", "erro " + codigo + ": " + mensagem)
                 if (codigo == 1) principal.post {
-                    filaConquistasAct.add(ConquistaAviso("RetroAchievements", getString(R.string.conq_erro_login), 0, null, informativo = true))
+                    val ctx = contextoLocalizado ?: this@EmulatorActivity
+                    filaConquistasAct.add(ConquistaAviso("RetroAchievements", ctx.getString(R.string.conq_erro_login), 0, null, informativo = true))
                 }
             }
         }
@@ -1201,8 +1200,7 @@ class EmulatorActivity : ComponentActivity() {
             return super.dispatchKeyEvent(event)
         }
 
-        Log.i("PhoenixInput", "tecla=" + KeyEvent.keyCodeToString(event.keyCode) + " acao=" + event.action)
-        if (event.keyCode == KeyEvent.KEYCODE_BACK || event.keyCode == KeyEvent.KEYCODE_BUTTON_MODE) {
+        if (event.keyCode == KeyEvent.KEYCODE_BUTTON_MODE) {
             if (event.action == KeyEvent.ACTION_DOWN && event.repeatCount == 0) {
                 alternarMenu()
             }

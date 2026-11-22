@@ -1,6 +1,8 @@
 package com.dfdx047.phoenixemu.ui.theme
 
 import android.app.Activity
+import android.content.Context
+import android.content.ContextWrapper
 import android.os.Build
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.material3.ColorScheme
@@ -165,10 +167,11 @@ fun PhoenixEmuTheme(
         // E a lista fixa de temas que decidia se os icones eram claros ou
         // escuros tambem saiu. Calculamos pela luminancia da cor, entao
         // qualquer tema novo acerta automaticamente, sem editar esta linha.
-        val corAtrasDaStatusBar = colorScheme.primaryContainer
+        val corAtrasDaStatusBar = colorScheme.background
         val corAtrasDaNavBar = colorScheme.background
         SideEffect {
-            val window = (view.context as Activity).window
+            val activity = view.context.encontrarActivity() ?: return@SideEffect
+            val window = activity.window
             val controlador = WindowInsetsControllerCompat(window, view)
             controlador.isAppearanceLightStatusBars = corAtrasDaStatusBar.luminance() > 0.5f
             controlador.isAppearanceLightNavigationBars = corAtrasDaNavBar.luminance() > 0.5f
@@ -189,4 +192,10 @@ fun PhoenixEmuTheme(
     ) {
         MaterialTheme(colorScheme = colorScheme, typography = Typography, content = content)
     }
+}
+
+private tailrec fun Context.encontrarActivity(): Activity? = when (this) {
+    is Activity -> this
+    is ContextWrapper -> baseContext.encontrarActivity()
+    else -> null
 }

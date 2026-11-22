@@ -51,7 +51,7 @@ data class OverlayConfigNova(
     val opacidadePressionado: Float = 0.8f,
     val escalaGlobal: Float = 1f,
     val margemSeguraDp: Float = 16f,
-    val skinId: String = "classico_snes",
+    val skinId: String = "classico_16bit",
     val skinsRapidas: List<String>? = null,
     val hapticoAtivo: Boolean = true,
     val hapticoIntensidade: Int = 1,

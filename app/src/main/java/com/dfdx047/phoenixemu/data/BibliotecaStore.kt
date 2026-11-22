@@ -3,6 +3,7 @@ package com.dfdx047.phoenixemu.data
 import android.content.Context
 import android.net.Uri
 import android.util.Log
+import androidx.room.withTransaction
 import com.dfdx047.phoenixemu.Assinatura
 import com.dfdx047.phoenixemu.FiltroBiblioteca
 import com.dfdx047.phoenixemu.Jogo
@@ -83,9 +84,11 @@ class BibliotecaStore private constructor(context: Context) {
 
     private val app = context.applicationContext
     private val prefs = Preferencias.obter(app)
-    private val dao = PhoenixDatabase.obter(app).jogos()
+    private val db = PhoenixDatabase.obter(app)
+    private val dao = db.jogos()
     private val escopo = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private val trava = Mutex()
+    private val travaScan = Mutex()
 
     private val _estadoScan = MutableStateFlow<EstadoScan>(EstadoScan.Parado)
     val estadoScan: StateFlow<EstadoScan> = _estadoScan.asStateFlow()
@@ -291,16 +294,16 @@ class BibliotecaStore private constructor(context: Context) {
 
     // ------------------------------------------------------- sincronizacao
 
-    suspend fun sincronizar(bloqueante: Boolean = false): ResumoSincronizacao {
+    suspend fun sincronizar(bloqueante: Boolean = false): ResumoSincronizacao = travaScan.withLock {
         carregar()
 
         val pastas = prefs.pastas()
         if (pastas.isEmpty()) {
             _ultimoResumo.value = ResumoSincronizacao.VAZIO
-            return ResumoSincronizacao.VAZIO
+            return@withLock ResumoSincronizacao.VAZIO
         }
 
-        return try {
+        try {
             _estadoScan.value =
                 EstadoScan.EmAndamento(EstadoScan.Etapa.LENDO_PASTAS, 0f, bloqueante)
 
@@ -352,34 +355,37 @@ class BibliotecaStore private constructor(context: Context) {
      */
     private suspend fun aplicar(identificados: List<Jogo>, diff: RomScanner.Diferenca) {
         val idsAlterados = diff.alterados.mapTo(HashSet()) { it.uri.toString() }
-
         val novos = identificados.filter { it.uriString !in idsAlterados }
-        if (novos.isNotEmpty()) {
-            dao.inserirIgnorando(novos.map { it.paraEntidade() })
-        }
+        val alterados = identificados.filter { it.uriString in idsAlterados }
 
-        for (jogo in identificados.filter { it.uriString in idsAlterados }) {
-            dao.atualizarArquivoAlterado(
-                uri = jogo.uriString,
-                nome = jogo.nome,
-                nomeOrdenacao = jogo.nome.lowercase(),
-                nomeArquivo = jogo.nomeArquivoOriginal,
-                extensao = jogo.extensao,
-                sistema = jogo.sistema.name,
-                regiao = jogo.regiao,
-                tamanho = jogo.tamanhoBytes,
-                modificado = jogo.modificadoEm
-            )
-        }
+        db.withTransaction {
+            if (novos.isNotEmpty()) {
+                dao.inserirIgnorando(novos.map { it.paraEntidade() })
+            }
 
-        // SQLite tem teto de variaveis por statement (999 por padrao). Um
-        // cartao SD removido com 3.000 jogos estouraria isso num IN (...).
-        diff.idsAusentes.chunked(LOTE_SQL).forEach { dao.marcarAusentes(it) }
-        diff.idsReencontrados.chunked(LOTE_SQL).forEach { dao.marcarPresentes(it) }
+            for (jogo in alterados) {
+                dao.atualizarArquivoAlterado(
+                    uri = jogo.uriString,
+                    nome = jogo.nome,
+                    nomeOrdenacao = jogo.nome.lowercase(),
+                    nomeArquivo = jogo.nomeArquivoOriginal,
+                    extensao = jogo.extensao,
+                    sistema = jogo.sistema.name,
+                    regiao = jogo.regiao,
+                    tamanho = jogo.tamanhoBytes,
+                    modificado = jogo.modificadoEm
+                )
+            }
+
+            // SQLite tem teto de variaveis por statement (999 por padrao). Um
+            // cartao SD removido com 3.000 jogos estouraria isso num IN (...).
+            diff.idsAusentes.chunked(LOTE_SQL).forEach { dao.marcarAusentes(it) }
+            diff.idsReencontrados.chunked(LOTE_SQL).forEach { dao.marcarPresentes(it) }
+        }
     }
 
     /** O usuario acabou de escolher uma pasta: varre so ela, mostrando progresso. */
-    suspend fun importarPasta(treeUri: Uri) {
+    suspend fun importarPasta(treeUri: Uri) = travaScan.withLock {
         carregar()
         try {
             _estadoScan.value =

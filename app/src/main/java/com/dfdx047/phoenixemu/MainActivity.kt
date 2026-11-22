@@ -218,7 +218,8 @@ class MainActivity : ComponentActivity() {
                 else -> super.dispatchKeyEvent(event)
             }
         }
-        if (event.action == KeyEvent.ACTION_UP &&
+        if (prefs.ombrosTrocamSecao.value &&
+            event.action == KeyEvent.ACTION_UP &&
             (event.keyCode == KeyEvent.KEYCODE_BUTTON_L1 || event.keyCode == KeyEvent.KEYCODE_BUTTON_R1)
         ) {
             return true // consome o UP tambem para evitar re-dispatch
@@ -255,7 +256,7 @@ class MainActivity : ComponentActivity() {
 
         // Sessao de jogo: registra abertura ao abrir e soma tempo ao voltar.
         val sessaoPrefs = getSharedPreferences("sessao_jogo", Context.MODE_PRIVATE)
-        val escopoSessao = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
+        val escopoSessao = lifecycleScope
         lifecycle.addObserver(object : DefaultLifecycleObserver {
             override fun onResume(owner: LifecycleOwner) {
                 super.onResume(owner)
@@ -412,7 +413,7 @@ fun PhoenixApp(prefs: Preferencias, biblioteca: BibliotecaStore, trocas: kotlinx
     }
 
     // A2 — som ao mudar de capa (ignora a primeira emissao)
-    LaunchedEffect(indiceSelecionado, jogosVisiveis) {
+    LaunchedEffect(Unit) {
         snapshotFlow { indiceSelecionado }
             .distinctUntilChanged()
             .drop(1)
@@ -955,7 +956,7 @@ fun PhoenixApp(prefs: Preferencias, biblioteca: BibliotecaStore, trocas: kotlinx
                             .padding(end = 16.dp, bottom = if (xmbAtivo) 16.dp else 96.dp)
                     ) {
                         AnimatedVisibility(
-                            visible = !navegacaoOculta && !xmbAtivo,
+                            visible = !navegacaoOculta,
                             enter = slideInVertically { it } + fadeIn(),
                             exit = slideOutVertically { it } + fadeOut()
                         ) {
@@ -1416,16 +1417,13 @@ private fun CarrosselXmb(
         val alturaBase = ((alturaDisponivelDp - 8f) * FATOR_CAPA_XMB).coerceIn(120f, 560f)
         val larguraBase = (alturaBase * 0.78f).coerceAtMost(larguraDaTelaDp * 0.42f)
         val larguraDaCapa = if (larga) minOf(larguraBase * 1.5f, larguraDaTelaDp * 0.46f) else larguraBase
-        val alturaDaCapa = if (larga) larguraDaCapa / 1.4f else alturaBase
-
-        // TEMPORARIO: remover — log de dimensoes
-        Log.i("PhoenixUi", "xmb maxH=${maxHeight.value} maxW=${maxWidth.value} topo=$paddingTopDp base=$paddingBottomDp capaH=$alturaDaCapa capaW=$larguraDaCapa folgaLateral=${(maxWidth.value - larguraDaCapa) / 2f}")
+        val alturaDaCapa = if (larga) larguraDaCapa / 1.4f else minOf(alturaBase, larguraDaCapa / 0.72f)
 
         val folgaLateral = (maxWidth.value - larguraDaCapa) / 2f
         val passoPx: Float = with(densidade) { (larguraDaCapa * 0.42f).dp.toPx() }
 
-        // TEMPORARIO: remover — sincronizacao de selecao via snapshotFlow
-        LaunchedEffect(Unit) {
+        LaunchedEffect(passoPx, jogos.size) {
+            if (jogos.isEmpty() || passoPx <= 0f) return@LaunchedEffect
             snapshotFlow<Float> {
                 estadoCarrossel.firstVisibleItemIndex + estadoCarrossel.firstVisibleItemScrollOffset / passoPx
             }.map { it.roundToInt().coerceIn(0, jogos.lastIndex) }
@@ -1736,7 +1734,7 @@ fun CartaoDeJogo(
                     SuperficieDeVidro(
                         modifier = Modifier
                             .align(Alignment.TopStart)
-                            .padding(6.dp)
+                            .padding(start = if (jogo.ausente) 34.dp else 6.dp, top = 6.dp, end = 6.dp, bottom = 6.dp)
                             .alpha(alphaOpcionais),
                         forma = CircleShape,
                         forte = true,
@@ -1785,6 +1783,7 @@ fun CartaoDeJogo(
                         jogo.nome,
                         fontWeight = FontWeight.Bold,
                         maxLines = 1,
+                        overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
                         color = Color.White,
                         style = MaterialTheme.typography.bodyMedium
                     )
@@ -1882,6 +1881,7 @@ fun CartaoDeJogo(
                         jogo.nome,
                         fontWeight = FontWeight.Bold,
                         maxLines = 1,
+                        overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
                         style = MaterialTheme.typography.bodyMedium
                     )
                     Spacer(Modifier.height(2.dp))
