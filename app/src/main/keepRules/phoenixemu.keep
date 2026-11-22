@@ -9,6 +9,28 @@
     native <methods>;
 }
 -keep class com.dfdx047.phoenixemu.emulator.NucleoLibretro { *; }
-# Gson salva/le classes do app por nome de campo: nao renomear.
+-keep class com.dfdx047.phoenixemu.emulator.RaNativo { *; }
+
+# Gson e Retrofit: preservar nomes de campos apenas nos modelos serializados.
 -keepattributes Signature, *Annotation*, InnerClasses, EnclosingMethod
--keep class com.dfdx047.phoenixemu.** { *; }
+-keep enum com.dfdx047.phoenixemu.** { *; }
+-keep class com.dfdx047.phoenixemu.Jogo { <fields>; <init>(...); }
+-keep class com.dfdx047.phoenixemu.BibliotecaSalva { <fields>; <init>(...); }
+-keep class com.dfdx047.phoenixemu.RawgResponse { <fields>; <init>(...); }
+-keep class com.dfdx047.phoenixemu.RawgGame { <fields>; <init>(...); }
+-keep class com.dfdx047.phoenixemu.data.OverlayConfigNova { <fields>; <init>(...); }
+-keep class com.dfdx047.phoenixemu.data.ControleNaTela { <fields>; <init>(...); }
+-keep class com.dfdx047.phoenixemu.data.AcaoNaTela { <fields>; <init>(...); }
+-keep class com.dfdx047.phoenixemu.data.ConfigDoOverlay { <fields>; <init>(...); }
+-keep class com.dfdx047.phoenixemu.data.ConfigDeAtalhos { <fields>; <init>(...); }
+-keep class com.dfdx047.phoenixemu.data.AtalhoDaAcao { <fields>; <init>(...); }
+-keep class com.dfdx047.phoenixemu.emulator.AjustesDeJogo { <fields>; <init>(...); }
+-keep class com.dfdx047.phoenixemu.emulator.SkinJson { <fields>; <init>(...); }
+-keep class com.dfdx047.phoenixemu.emulator.SkinJson$* { <fields>; <init>(...); }
+-keep class com.dfdx047.phoenixemu.emulator.IndiceJson { <fields>; <init>(...); }
+-keep class com.dfdx047.phoenixemu.emulator.IndiceJson$* { <fields>; <init>(...); }
+-keep class com.dfdx047.phoenixemu.ra.RaJogoProgresso { <fields>; <init>(...); }
+-keep class com.dfdx047.phoenixemu.ra.RaConquista { <fields>; <init>(...); }
+-keep class com.dfdx047.phoenixemu.ra.RaResumo { <fields>; <init>(...); }
+-keep class com.dfdx047.phoenixemu.ra.RaRepositorio$IdEntrada { <fields>; <init>(...); }
+-keep class com.dfdx047.phoenixemu.ra.RaRepositorio$CacheLista { <fields>; <init>(...); }

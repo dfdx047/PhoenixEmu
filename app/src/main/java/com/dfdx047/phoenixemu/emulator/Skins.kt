@@ -229,10 +229,36 @@ object Skins {
         if (cache == null) cache = embutidas + CarregadorDeSkins.carregarInstaladas(context.applicationContext)
     }
 
+    /** Versao assincrona para evitar I/O na main thread durante composicao. */
+    suspend fun garantirAsync(context: Context) {
+        if (cache != null) return
+        val appCtx = context.applicationContext
+        val carregadas = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+            embutidas + CarregadorDeSkins.carregarInstaladas(appCtx)
+        }
+        kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Main) {
+            if (cache == null) {
+                cache = carregadas
+                tick++
+            }
+        }
+    }
+
     /** Depois de instalar ou remover uma skin. */
     fun recarregar(context: Context) {
         cache = embutidas + CarregadorDeSkins.carregarInstaladas(context.applicationContext)
         tick++
+    }
+
+    suspend fun recarregarAsync(context: Context) {
+        val appCtx = context.applicationContext
+        val carregadas = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+            embutidas + CarregadorDeSkins.carregarInstaladas(appCtx)
+        }
+        kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Main) {
+            cache = carregadas
+            tick++
+        }
     }
 
     const val MAX_RAPIDAS = 3

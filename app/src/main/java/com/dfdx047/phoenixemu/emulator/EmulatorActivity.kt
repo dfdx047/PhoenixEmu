@@ -124,6 +124,9 @@ class EmulatorActivity : ComponentActivity() {
     private var mensagemFeedback by mutableStateOf("")
     private var slotsInfo by mutableStateOf<List<SlotData>>(emptyList())
     private var nomeDoJogo by mutableStateOf("")
+    private var carregandoJogo by mutableStateOf(true)
+    private var loadError by mutableStateOf<String?>(null)
+    private var infoMessage by mutableStateOf("")
 
     private var srmPath: String? = null
     private var isJogoReal = false
@@ -487,7 +490,17 @@ class EmulatorActivity : ComponentActivity() {
 
     private fun carregarSlotsInfo() {
         val ctx = contextoLocalizado ?: this
-        slotsInfo = armazemDeEstados?.listarSlots() ?: List(4) { slot -> SlotData(slot + 1, false, ctx.getString(R.string.jogo_slot_vazio_text), "", null) }
+        val armazem = armazemDeEstados
+        if (armazem == null) {
+            slotsInfo = List(4) { slot -> SlotData(slot + 1, false, ctx.getString(R.string.jogo_slot_vazio_text), "", null) }
+            return
+        }
+        lifecycleScope.launch(Dispatchers.IO) {
+            val carregados = armazem.listarSlots()
+            kotlinx.coroutines.withContext(Dispatchers.Main) {
+                slotsInfo = carregados
+            }
+        }
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -586,55 +599,15 @@ class EmulatorActivity : ComponentActivity() {
         val menuAlca = intent.getBooleanExtra("phoenix.menu_alca", true)
         val menuGesto = intent.getBooleanExtra("phoenix.menu_gesto", true)
 
-        val carregador = CarregadorDeJogo(this, nucleo)
-        val resultado = carregador.carregar(
-            nomeDoNucleo = nucleoName,
-            romUri = romUriString,
-            nomeSave = nomeSave,
-            autoCarregar = intent.getBooleanExtra(EXTRA_AUTOCARREGAR, false) && !hardcoreAtivo
-        )
-
-        var infoMessage = resultado.info
-        var loadError: String? = resultado.erro
-
-        srmPath = resultado.srmPath
-        isJogoReal = resultado.jogoReal
-        aspectRatio = resultado.aspectRatio
-        precisaAvisoAutoload = resultado.autoloadAplicado
-        nomeDoJogo = if (isJogoReal) {
-            val tituloExtra = intent.getStringExtra(EXTRA_TITULO)
-            if (!tituloExtra.isNullOrBlank()) tituloExtra else (romUriString ?: "")
-        } else ""
-
         // Novos extras para o cabeçalho do menu de pausa
         val capaLocal = intent.getStringExtra(EXTRA_CAPA)
         val tempoJogadoMs = intent.getLongExtra(EXTRA_TEMPO_JOGADO_MS, 0L)
         val plataforma = intent.getStringExtra(EXTRA_PLATAFORMA) ?: ""
-        
+
         val ajustesStr = intent.getStringExtra("phoenix.ajustes")
         if (!ajustesStr.isNullOrEmpty()) {
             ajustes = Gson().fromJson(ajustesStr, AjustesDeJogo::class.java)
             idDoJogoAtual = ajustes.idDoJogo
-        }
-        
-        aplicarAjustesNoEmulador()
-
-        iniciarRetroAchievements(isJogoReal && loadError == null)
-
-        if (isJogoReal) {
-            autosavePendente = true
-        }
-
-        srmPath?.let {
-            val ctx = this@EmulatorActivity
-            armazemDeEstados = ArmazemDeEstados(File(it).parentFile, nomeSave, ctx.getString(R.string.jogo_slot_vazio_text))
-            gerenciadorDeEstados = GerenciadorDeEstados(
-                nucleo = nucleo,
-                armazem = armazemDeEstados!!,
-                escopo = lifecycleScope,
-                capturarMiniatura = ::capturarMiniatura,
-                miniaturaAtual = { lastCapturedBitmap },
-            )
         }
 
         // --- Aplicar idioma escolhido nos Ajustes (se houver) ---
@@ -647,6 +620,51 @@ class EmulatorActivity : ComponentActivity() {
             Configuration(resources.configuration)
         }
         contextoLocalizado = createConfigurationContext(config)
+
+        val autoCarregarExtra = intent.getBooleanExtra(EXTRA_AUTOCARREGAR, false) && !hardcoreAtivo
+        val tituloExtra = intent.getStringExtra(EXTRA_TITULO)
+
+        lifecycleScope.launch(Dispatchers.IO) {
+            val carregador = CarregadorDeJogo(this@EmulatorActivity, nucleo)
+            val resultado = carregador.carregar(
+                nomeDoNucleo = nucleoName,
+                romUri = romUriString,
+                nomeSave = nomeSave,
+                autoCarregar = autoCarregarExtra
+            )
+            kotlinx.coroutines.withContext(Dispatchers.Main) {
+                if (isFinishing || isDestroyed) return@withContext
+                infoMessage = resultado.info
+                loadError = resultado.erro
+                srmPath = resultado.srmPath
+                isJogoReal = resultado.jogoReal
+                aspectRatio = resultado.aspectRatio
+                precisaAvisoAutoload = resultado.autoloadAplicado
+                nomeDoJogo = if (isJogoReal) {
+                    if (!tituloExtra.isNullOrBlank()) tituloExtra else (romUriString ?: "")
+                } else ""
+
+                aplicarAjustesNoEmulador()
+                iniciarRetroAchievements(isJogoReal && loadError == null)
+
+                if (isJogoReal) {
+                    autosavePendente = true
+                }
+
+                srmPath?.let {
+                    val ctx = contextoLocalizado ?: this@EmulatorActivity
+                    armazemDeEstados = ArmazemDeEstados(File(it).parentFile, nomeSave, ctx.getString(R.string.jogo_slot_vazio_text))
+                    gerenciadorDeEstados = GerenciadorDeEstados(
+                        nucleo = nucleo,
+                        armazem = armazemDeEstados!!,
+                        escopo = lifecycleScope,
+                        capturarMiniatura = ::capturarMiniatura,
+                        miniaturaAtual = { lastCapturedBitmap },
+                    )
+                }
+                carregandoJogo = false
+            }
+        }
 
         setContent {
             val focusRequester = remember { FocusRequester() }
@@ -663,7 +681,9 @@ class EmulatorActivity : ComponentActivity() {
                     sombras = sombras
                 ) {
                 Box(Modifier.fillMaxSize().background(Color.Black), contentAlignment = Alignment.Center) {
-                    if (loadError != null) {
+                    if (carregandoJogo) {
+                        androidx.compose.material3.CircularProgressIndicator(color = Color.White)
+                    } else if (loadError != null) {
                         BasicText(
                         text = loadError!!,
                         style = TextStyle(color = Color.White, fontSize = 18.sp),

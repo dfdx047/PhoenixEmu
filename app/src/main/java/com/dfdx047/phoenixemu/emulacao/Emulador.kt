@@ -16,8 +16,9 @@ import com.dfdx047.phoenixemu.emulator.AjustesDeJogo
 import com.dfdx047.phoenixemu.emulator.EscalaImagem
 import com.dfdx047.phoenixemu.emulator.FiltroImagem
 import com.dfdx047.phoenixemu.emulator.ProporcaoImagem
-import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.withContext
 import android.util.Base64
 import org.json.JSONArray
 import org.json.JSONObject
@@ -50,10 +51,17 @@ object Emulador {
     }
 
     /** Ferramenta da Fase 4: roda o nucleo falso, sem ROM. */
-    fun abrirNucleoFalso(context: Context, prefs: Preferencias) =
+    suspend fun abrirNucleoFalso(context: Context, prefs: Preferencias) =
         abrir(context, prefs, NUCLEO_FALSO, rom = null, nomeSave = "nucleo_falso")
 
-    fun abrirJogo(context: Context, prefs: Preferencias, jogo: Jogo) =
+    suspend fun abrirJogo(context: Context, prefs: Preferencias, jogo: Jogo) {
+        val hashRa = jogo.hashRa?.takeIf { it.isNotBlank() }
+            ?: withContext(Dispatchers.IO) {
+                runCatching {
+                    com.dfdx047.phoenixemu.data.RomHasher.calcular(context, jogo.uri, jogo.extensao, jogo.sistema)?.hashRa
+                }.getOrNull()
+            }
+            ?: ""
         abrir(
             context, prefs,
             nucleo = nucleoPara(jogo.sistema),
@@ -66,20 +74,15 @@ object Emulador {
                 Sistema.NES -> "NES"
                 Sistema.SNES -> "SNES"
             },
-            raHash = jogo.hashRa?.takeIf { it.isNotBlank() }
-                ?: runCatching {
-                    runBlocking(kotlinx.coroutines.Dispatchers.IO) {
-                        com.dfdx047.phoenixemu.data.RomHasher.calcular(context, jogo.uri, jogo.extensao, jogo.sistema)?.hashRa
-                    }
-                }.getOrNull()
-                ?: "",
+            raHash = hashRa,
             raConsole = when (jogo.sistema) {
                 Sistema.NES -> 7
                 Sistema.SNES -> 3
             }
         )
+    }
 
-    private fun abrir(
+    private suspend fun abrir(
         context: Context,
         prefs: Preferencias,
         nucleo: String,
@@ -92,9 +95,9 @@ object Emulador {
         raHash: String = "",
         raConsole: Int = 0,
     ) {
-        val idDoJogo = rom?.let { Base64.encodeToString(it.toByteArray(), Base64.NO_WRAP) } ?: ""
+        val intent = withContext(Dispatchers.IO) {
+            val idDoJogo = rom?.let { Base64.encodeToString(it.toByteArray(), Base64.NO_WRAP) } ?: ""
 
-        val ajustes = runBlocking {
             val (escalaStr, eO) = prefs.getAjusteString("aj_global_${AjustesDeJogo.CHAVE_ESCALA}", idDoJogo.takeIf { it.isNotEmpty() }?.let { "aj_jogo_${it}_${AjustesDeJogo.CHAVE_ESCALA}" }, EscalaImagem.AJUSTAR.name)
             val (proporcaoStr, pO) = prefs.getAjusteString("aj_global_${AjustesDeJogo.CHAVE_PROPORCAO}", idDoJogo.takeIf { it.isNotEmpty() }?.let { "aj_jogo_${it}_${AjustesDeJogo.CHAVE_PROPORCAO}" }, ProporcaoImagem.AUTOMATICA.name)
             val (filtroStr, filO) = prefs.getAjusteString("aj_global_${AjustesDeJogo.CHAVE_FILTRO}", idDoJogo.takeIf { it.isNotEmpty() }?.let { "aj_jogo_${it}_${AjustesDeJogo.CHAVE_FILTRO}" }, FiltroImagem.NITIDO.name)
@@ -112,10 +115,10 @@ object Emulador {
             if (mO) overrides.add(AjustesDeJogo.CHAVE_MUDO)
             if (ffO) overrides.add(AjustesDeJogo.CHAVE_VELOCIDADE_FF)
 
-            val (overlayJsonStr, overlayOverride) = prefs.getAjusteString("dummy", idDoJogo.takeIf { it.isNotEmpty() }?.let { "aj_jogo_${it}_overlay_controle" }, "")
-            if (overlayOverride && overlayJsonStr.isNotBlank()) overrides.add("overlay_controle")
+            val (overlayJsonRaw, overlayOverride) = prefs.getAjusteString("dummy", idDoJogo.takeIf { it.isNotEmpty() }?.let { "aj_jogo_${it}_overlay_controle" }, "")
+            if (overlayOverride && overlayJsonRaw.isNotBlank()) overrides.add("overlay_controle")
 
-            AjustesDeJogo(
+            val ajustes = AjustesDeJogo(
                 escala = runCatching { EscalaImagem.valueOf(escalaStr) }.getOrDefault(EscalaImagem.AJUSTAR),
                 proporcao = runCatching { ProporcaoImagem.valueOf(proporcaoStr) }.getOrDefault(ProporcaoImagem.AUTOMATICA),
                 filtro = runCatching { FiltroImagem.valueOf(filtroStr) }.getOrDefault(FiltroImagem.NITIDO),
@@ -126,98 +129,101 @@ object Emulador {
                 overrides = overrides,
                 idDoJogo = idDoJogo
             )
-        }
-        
-        val overlayJsonStr = runBlocking { 
-            val (str, override) = prefs.getAjusteString("dummy", idDoJogo.takeIf { it.isNotEmpty() }?.let { "aj_jogo_${it}_overlay_controle" }, "")
-            val overlayConfigEfetivo = if (override && str.isNotBlank()) {
-                Gson().fromJson(str, com.dfdx047.phoenixemu.data.OverlayConfigNova::class.java)
+
+            val gson = Gson()
+            val overlayGlobal = prefs.overlay.first()
+            val overlayConfigEfetivo = if (overlayOverride && overlayJsonRaw.isNotBlank()) {
+                gson.fromJson(overlayJsonRaw, com.dfdx047.phoenixemu.data.OverlayConfigNova::class.java)
             } else {
-                prefs.overlay.first()
+                overlayGlobal
             }
             val overlayFinal = if (overlayConfigEfetivo.controles.isEmpty()) {
                 overlayConfigEfetivo.copy(controles = if (plataforma == "SNES") com.dfdx047.phoenixemu.data.OverlayConfigNova.layoutSnes() else com.dfdx047.phoenixemu.data.OverlayConfigNova.layoutNes())
             } else {
                 overlayConfigEfetivo
             }
-            Gson().toJson(overlayFinal.copy(skinsRapidas = prefs.overlay.first().skinsRapidas))
-        }
+            val overlayJsonStr = gson.toJson(overlayFinal.copy(skinsRapidas = overlayGlobal.skinsRapidas))
 
-        val darkTheme = (context.resources.configuration.uiMode and android.content.res.Configuration.UI_MODE_NIGHT_MASK) == android.content.res.Configuration.UI_MODE_NIGHT_YES
-        val schemeBase = com.dfdx047.phoenixemu.ui.theme.esquemaDeAmostraSemComposable(prefs.tema.value, context, darkTheme)
-        
-        val corPrimaria = schemeBase.primary.toArgb()
-        val corSuperficie = schemeBase.surface.toArgb()
-        val corTexto = schemeBase.onSurface.toArgb()
+            val darkTheme = (context.resources.configuration.uiMode and android.content.res.Configuration.UI_MODE_NIGHT_MASK) == android.content.res.Configuration.UI_MODE_NIGHT_YES
+            val schemeBase = com.dfdx047.phoenixemu.ui.theme.esquemaDeAmostraSemComposable(prefs.tema.value, context, darkTheme)
 
-        val atalhos = prefs.atalhos.value
-        val atalhosJson = JSONObject()
-        AcaoAtalho.entries.forEach { acao ->
-            val combo = atalhos.combo(acao)
-            if (combo.isNotEmpty()) {
-                val array = JSONArray()
-                combo.forEach { array.put(it) }
-                atalhosJson.put(acao.name, array)
-            } else {
-                atalhosJson.put(acao.name, JSONArray())
+            val corPrimaria = schemeBase.primary.toArgb()
+            val corSuperficie = schemeBase.surface.toArgb()
+            val corTexto = schemeBase.onSurface.toArgb()
+
+            val atalhos = prefs.atalhos.value
+            val atalhosJson = JSONObject()
+            AcaoAtalho.entries.forEach { acao ->
+                val combo = atalhos.combo(acao)
+                if (combo.isNotEmpty()) {
+                    val array = JSONArray()
+                    combo.forEach { array.put(it) }
+                    atalhosJson.put(acao.name, array)
+                } else {
+                    atalhosJson.put(acao.name, JSONArray())
+                }
             }
-        }
 
-        val intent = Intent(context, EmulatorActivity::class.java)
-            .putExtra(EmulatorActivity.EXTRA_NUCLEO, nucleo)
-            .putExtra(EmulatorActivity.EXTRA_NOME_SAVE, nomeSave)
-            .putExtra(EmulatorActivity.EXTRA_MAPEAMENTO, mapeamento(prefs))
-            .putExtra(EmulatorActivity.EXTRA_OVERLAY, overlayJsonStr)
-            .putExtra(EmulatorActivity.EXTRA_ATALHOS, atalhosJson.toString())
-            .putExtra(EmulatorActivity.EXTRA_ATALHOS_CFG, Gson().toJson(prefs.atalhos.value))
-            .putExtra(EmulatorActivity.EXTRA_AUTOSALVAR, prefs.autoSalvar.value)
-            .putExtra(EmulatorActivity.EXTRA_AUTOCARREGAR, prefs.autoCarregar.value)
-            .putExtra(EmulatorActivity.EXTRA_TEMA, prefs.tema.value.name)
-            .putExtra(EmulatorActivity.EXTRA_ACABAMENTO, prefs.acabamento.value.name)
-            .putExtra(EmulatorActivity.EXTRA_REDUZIR_EFEITOS, prefs.reduzirEfeitos.value)
-            .putExtra(EmulatorActivity.EXTRA_AMOLED, prefs.amoled.value)
-            .putExtra(EmulatorActivity.EXTRA_SOMBRAS, prefs.sombras.value)
-            .putExtra(EmulatorActivity.EXTRA_IDIOMA, Idioma.atual(context))
-            .putExtra(EmulatorActivity.EXTRA_TITULO, titulo)
-            .putExtra(EmulatorActivity.EXTRA_PLATAFORMA, plataforma)
-            .putExtra("phoenix.ajustes", Gson().toJson(ajustes))
+            val hcJogo = prefs.getAjusteString("dummy", idDoJogo.takeIf { it.isNotEmpty() }?.let { "aj_jogo_${it}_ra_hardcore" }, "PADRAO").first
+            val hcConsole = if (raConsole == 3) prefs.raHardcoreSnes.first() else prefs.raHardcoreNes.first()
+            val hcPadrao = prefs.conqHardcore.first()
+            val hardcoreFinal = when (if (hcJogo != "PADRAO") hcJogo else hcConsole) {
+                "LIGADO" -> true
+                "DESLIGADO" -> false
+                else -> hcPadrao
+            }
 
-        if (rom != null) intent.putExtra(EmulatorActivity.EXTRA_ROM, rom)
-        if (!capa.isNullOrBlank()) intent.putExtra(EmulatorActivity.EXTRA_CAPA, capa)
-        intent.putExtra(EmulatorActivity.EXTRA_TEMPO_JOGADO_MS, tempoJogadoMs)
-        intent.putExtra("phoenix.cor_primaria", corPrimaria)
-        intent.putExtra("phoenix.cor_superficie", corSuperficie)
-        intent.putExtra("phoenix.cor_texto", corTexto)
-        intent.putExtra("phoenix.menu_estilo", runBlocking { prefs.globalMenuEstilo.first() })
-        intent.putExtra("phoenix.menu_desfoque", runBlocking { prefs.globalMenuDesfoque.first() })
-        intent.putExtra("phoenix.menu_opacidade", runBlocking { prefs.globalMenuOpacidade.first() })
-        intent.putExtra("phoenix.menu_lado", runBlocking { prefs.globalMenuLado.first() })
-        intent.putExtra("phoenix.menu_tema", runBlocking { prefs.globalMenuTema.first() })
-        intent.putExtra("phoenix.menu_alca", runBlocking { prefs.globalMenuAlca.first() })
-        intent.putExtra("phoenix.menu_voltar", runBlocking { prefs.globalMenuVoltar.first() })
-        intent.putExtra("phoenix.menu_gesto", runBlocking { prefs.globalMenuGesto.first() })
-        intent.putExtra("phoenix.conq_avisos", runBlocking { prefs.conqAvisos.first() })
-        intent.putExtra("phoenix.conq_som", runBlocking { prefs.conqSom.first() })
-        intent.putExtra("phoenix.conq_vibrar", runBlocking { prefs.conqVibrar.first() })
-        val hcJogo = runBlocking { prefs.getAjusteString("dummy", idDoJogo.takeIf { it.isNotEmpty() }?.let { "aj_jogo_${it}_ra_hardcore" }, "PADRAO").first }
-        val hcConsole = runBlocking { if (raConsole == 3) prefs.raHardcoreSnes.first() else prefs.raHardcoreNes.first() }
-        val hcPadrao = runBlocking { prefs.conqHardcore.first() }
-        val hardcoreFinal = when (if (hcJogo != "PADRAO") hcJogo else hcConsole) {
-            "LIGADO" -> true
-            "DESLIGADO" -> false
-            else -> hcPadrao
+            val i = Intent(context, EmulatorActivity::class.java)
+                .putExtra(EmulatorActivity.EXTRA_NUCLEO, nucleo)
+                .putExtra(EmulatorActivity.EXTRA_NOME_SAVE, nomeSave)
+                .putExtra(EmulatorActivity.EXTRA_MAPEAMENTO, mapeamento(prefs))
+                .putExtra(EmulatorActivity.EXTRA_OVERLAY, overlayJsonStr)
+                .putExtra(EmulatorActivity.EXTRA_ATALHOS, atalhosJson.toString())
+                .putExtra(EmulatorActivity.EXTRA_ATALHOS_CFG, gson.toJson(prefs.atalhos.value))
+                .putExtra(EmulatorActivity.EXTRA_AUTOSALVAR, prefs.autoSalvar.value)
+                .putExtra(EmulatorActivity.EXTRA_AUTOCARREGAR, prefs.autoCarregar.value)
+                .putExtra(EmulatorActivity.EXTRA_TEMA, prefs.tema.value.name)
+                .putExtra(EmulatorActivity.EXTRA_ACABAMENTO, prefs.acabamento.value.name)
+                .putExtra(EmulatorActivity.EXTRA_REDUZIR_EFEITOS, prefs.reduzirEfeitos.value)
+                .putExtra(EmulatorActivity.EXTRA_AMOLED, prefs.amoled.value)
+                .putExtra(EmulatorActivity.EXTRA_SOMBRAS, prefs.sombras.value)
+                .putExtra(EmulatorActivity.EXTRA_IDIOMA, Idioma.atual(context))
+                .putExtra(EmulatorActivity.EXTRA_TITULO, titulo)
+                .putExtra(EmulatorActivity.EXTRA_PLATAFORMA, plataforma)
+                .putExtra("phoenix.ajustes", gson.toJson(ajustes))
+                .putExtra(EmulatorActivity.EXTRA_TEMPO_JOGADO_MS, tempoJogadoMs)
+                .putExtra("phoenix.cor_primaria", corPrimaria)
+                .putExtra("phoenix.cor_superficie", corSuperficie)
+                .putExtra("phoenix.cor_texto", corTexto)
+                .putExtra("phoenix.menu_estilo", prefs.globalMenuEstilo.first())
+                .putExtra("phoenix.menu_desfoque", prefs.globalMenuDesfoque.first())
+                .putExtra("phoenix.menu_opacidade", prefs.globalMenuOpacidade.first())
+                .putExtra("phoenix.menu_lado", prefs.globalMenuLado.first())
+                .putExtra("phoenix.menu_tema", prefs.globalMenuTema.first())
+                .putExtra("phoenix.menu_alca", prefs.globalMenuAlca.first())
+                .putExtra("phoenix.menu_voltar", prefs.globalMenuVoltar.first())
+                .putExtra("phoenix.menu_gesto", prefs.globalMenuGesto.first())
+                .putExtra("phoenix.conq_avisos", prefs.conqAvisos.first())
+                .putExtra("phoenix.conq_som", prefs.conqSom.first())
+                .putExtra("phoenix.conq_vibrar", prefs.conqVibrar.first())
+                .putExtra("phoenix.ra_hardcore", hardcoreFinal)
+                .putExtra("phoenix.ra_hardcore_jogo", hcJogo)
+                .putExtra("phoenix.conq_posicao", prefs.conqPosicao.first())
+                .putExtra("phoenix.conq_duracao", prefs.conqDuracao.first())
+                .putExtra("phoenix.conq_volume", prefs.conqVolume.first())
+                .putExtra("phoenix.ra_usuario", com.dfdx047.phoenixemu.ra.RaCredenciais.usuario(context) ?: "")
+                .putExtra("phoenix.ra_token", com.dfdx047.phoenixemu.ra.RaCredenciais.token(context) ?: "")
+                .putExtra("phoenix.ra_hash", raHash)
+                .putExtra("phoenix.ra_console", raConsole)
+
+            if (rom != null) i.putExtra(EmulatorActivity.EXTRA_ROM, rom)
+            if (!capa.isNullOrBlank()) i.putExtra(EmulatorActivity.EXTRA_CAPA, capa)
+            runCatching { com.dfdx047.phoenixemu.ra.RaRepositorio(context).limparCache() }
+            i
         }
-        intent.putExtra("phoenix.ra_hardcore", hardcoreFinal)
-        intent.putExtra("phoenix.ra_hardcore_jogo", hcJogo)
-        intent.putExtra("phoenix.conq_posicao", runBlocking { prefs.conqPosicao.first() })
-        intent.putExtra("phoenix.conq_duracao", runBlocking { prefs.conqDuracao.first() })
-        intent.putExtra("phoenix.conq_volume", runBlocking { prefs.conqVolume.first() })
-        intent.putExtra("phoenix.ra_usuario", com.dfdx047.phoenixemu.ra.RaCredenciais.usuario(context) ?: "")
-        intent.putExtra("phoenix.ra_token", com.dfdx047.phoenixemu.ra.RaCredenciais.token(context) ?: "")
-        intent.putExtra("phoenix.ra_hash", raHash)
-        intent.putExtra("phoenix.ra_console", raConsole)
-        runCatching { com.dfdx047.phoenixemu.ra.RaRepositorio(context).limparCache() }
-        context.startActivity(intent)
+        withContext(Dispatchers.Main) {
+            context.startActivity(intent)
+        }
     }
 
     /**

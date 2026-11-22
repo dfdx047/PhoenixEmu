@@ -1,6 +1,8 @@
 package com.dfdx047.phoenixemu.ui.telas
 
 import kotlinx.coroutines.launch
+
+import kotlinx.coroutines.launch
 import android.view.KeyEvent
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -383,7 +385,8 @@ private fun EditorDoOverlay(prefs: Preferencias) {
     val config by prefs.overlay.collectAsStateWithLifecycle()
     var editandoLayout by remember { mutableStateOf(false) }
     val ctxSkins = androidx.compose.ui.platform.LocalContext.current
-    remember(ctxSkins) { com.dfdx047.phoenixemu.emulator.Skins.garantir(ctxSkins); 0 }
+    val scopeOverlay = androidx.compose.runtime.rememberCoroutineScope()
+    LaunchedEffect(ctxSkins) { com.dfdx047.phoenixemu.emulator.Skins.garantirAsync(ctxSkins) }
     var skinIndice by remember { mutableIntStateOf(0) }
 
     LaunchedEffect(config.skinId) {
@@ -559,11 +562,15 @@ private fun EditorDoOverlay(prefs: Preferencias) {
                 }
                 if (ehInstalada && skinAtual != null) {
                     androidx.compose.material3.Button(onClick = {
-                        com.dfdx047.phoenixemu.emulator.CarregadorDeSkins.remover(ctxSkins, skinAtual.id)
-                        com.dfdx047.phoenixemu.emulator.Skins.recarregar(ctxSkins)
-                        prefs.definirOverlay(config.copy(skinId = com.dfdx047.phoenixemu.emulator.SkinClassica16Bit.id,
-                            skinsRapidas = config.skinsRapidas?.filter { it != skinAtual.id }))
-                        msgSkin = null
+                        scopeOverlay.launch {
+                            kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+                                com.dfdx047.phoenixemu.emulator.CarregadorDeSkins.remover(ctxSkins, skinAtual.id)
+                            }
+                            com.dfdx047.phoenixemu.emulator.Skins.recarregarAsync(ctxSkins)
+                            prefs.definirOverlay(config.copy(skinId = com.dfdx047.phoenixemu.emulator.SkinClassica16Bit.id,
+                                skinsRapidas = config.skinsRapidas?.filter { it != skinAtual.id }))
+                            msgSkin = null
+                        }
                     }) { Text(stringResource(R.string.skin_remover)) }
                 }
             }
@@ -576,24 +583,30 @@ private fun EditorDoOverlay(prefs: Preferencias) {
         
         HorizontalDivider()
 
-        Text(stringResource(R.string.editor_overlay_opacidade_ociosa_valor, (config.opacidadeOciosa * 100).toInt()), style = MaterialTheme.typography.bodyMedium)
+        var opacidadeOciosaLocal by remember(config.opacidadeOciosa) { androidx.compose.runtime.mutableFloatStateOf(config.opacidadeOciosa) }
+        Text(stringResource(R.string.editor_overlay_opacidade_ociosa_valor, (opacidadeOciosaLocal * 100).toInt()), style = MaterialTheme.typography.bodyMedium)
         Slider(
-            value = config.opacidadeOciosa,
-            onValueChange = { prefs.definirOverlay(config.copy(opacidadeOciosa = it)) },
+            value = opacidadeOciosaLocal,
+            onValueChange = { opacidadeOciosaLocal = it },
+            onValueChangeFinished = { prefs.definirOverlay(config.copy(opacidadeOciosa = opacidadeOciosaLocal)) },
             valueRange = 0.0f..1f
         )
         
-        Text(stringResource(R.string.editor_overlay_opacidade_pressionado_valor, (config.opacidadePressionado * 100).toInt()), style = MaterialTheme.typography.bodyMedium)
+        var opacidadePressionadoLocal by remember(config.opacidadePressionado) { androidx.compose.runtime.mutableFloatStateOf(config.opacidadePressionado) }
+        Text(stringResource(R.string.editor_overlay_opacidade_pressionado_valor, (opacidadePressionadoLocal * 100).toInt()), style = MaterialTheme.typography.bodyMedium)
         Slider(
-            value = config.opacidadePressionado,
-            onValueChange = { prefs.definirOverlay(config.copy(opacidadePressionado = it)) },
+            value = opacidadePressionadoLocal,
+            onValueChange = { opacidadePressionadoLocal = it },
+            onValueChangeFinished = { prefs.definirOverlay(config.copy(opacidadePressionado = opacidadePressionadoLocal)) },
             valueRange = 0.0f..1f
         )
 
-        Text(stringResource(R.string.editor_overlay_tamanho_global_valor, (config.escalaGlobal * 100).toInt()), style = MaterialTheme.typography.bodyMedium)
+        var escalaGlobalLocal by remember(config.escalaGlobal) { androidx.compose.runtime.mutableFloatStateOf(config.escalaGlobal) }
+        Text(stringResource(R.string.editor_overlay_tamanho_global_valor, (escalaGlobalLocal * 100).toInt()), style = MaterialTheme.typography.bodyMedium)
         Slider(
-            value = config.escalaGlobal,
-            onValueChange = { prefs.definirOverlay(config.copy(escalaGlobal = it)) },
+            value = escalaGlobalLocal,
+            onValueChange = { escalaGlobalLocal = it },
+            onValueChangeFinished = { prefs.definirOverlay(config.copy(escalaGlobal = escalaGlobalLocal)) },
             valueRange = 0.5f..2.0f
         )
 

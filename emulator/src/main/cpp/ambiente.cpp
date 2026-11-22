@@ -14,7 +14,7 @@ void phoenix_ra_definir_mapa(const struct retro_memory_map *mapa);
 
 std::string g_system_dir;
 std::string g_saves_dir;
-int g_formato_pixel = -1;
+std::atomic<int> g_formato_pixel{-1};
 
 extern std::atomic<int> g_ff_velocidade;
 
@@ -50,7 +50,7 @@ bool cb_environment(unsigned cmd, void *data) {
         case 10: { // RETRO_ENVIRONMENT_SET_PIXEL_FORMAT
             int format = *(const int*)data;
             if (format == 1 || format == 2) {
-                g_formato_pixel = format;
+                g_formato_pixel.store(format, std::memory_order_relaxed);
                 LOGI("SET_PIXEL_FORMAT aceito: %d", format);
                 return true;
             }

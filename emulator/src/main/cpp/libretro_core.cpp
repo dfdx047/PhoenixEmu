@@ -10,7 +10,7 @@
 #define LOGI(...) __android_log_print(ANDROID_LOG_INFO, "PhoenixCore", __VA_ARGS__)
 
 extern bool cb_environment(unsigned cmd, void *data);
-extern int g_formato_pixel;
+extern std::atomic<int> g_formato_pixel;
 extern std::atomic<bool> g_pular_video;
 extern std::atomic<int> g_ff_velocidade;
 
@@ -169,9 +169,10 @@ std::string LibretroCore::obterInfo() {
     ss << "Audio Rate: " << avInfo.timing.sample_rate << "\n";
 
     std::string pixel_str = "Unknown";
-    if (g_formato_pixel == 1) pixel_str = "XRGB8888";
-    else if (g_formato_pixel == 2) pixel_str = "RGB565";
-    else if (g_formato_pixel == 0) pixel_str = "0RGB1555";
+    int fmt = g_formato_pixel.load(std::memory_order_relaxed);
+    if (fmt == 1) pixel_str = "XRGB8888";
+    else if (fmt == 2) pixel_str = "RGB565";
+    else if (fmt == 0) pixel_str = "0RGB1555";
 
     ss << "Pixel Format: " << pixel_str;
 

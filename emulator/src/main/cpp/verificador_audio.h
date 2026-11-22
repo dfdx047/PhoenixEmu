@@ -28,19 +28,33 @@
 #include <stdint.h>
 #include <time.h>
 
+#ifdef __cplusplus
+#include <atomic>
+#define AUDIO_ATOMIC(T) std::atomic<T>
+#define AUDIO_LOAD(v) ((v).load(std::memory_order_relaxed))
+#define AUDIO_STORE(v, x) ((v).store((x), std::memory_order_relaxed))
+#define AUDIO_ADD(v, x) ((v).fetch_add((x), std::memory_order_relaxed))
+#else
+#include <stdatomic.h>
+#define AUDIO_ATOMIC(T) _Atomic T
+#define AUDIO_LOAD(v) atomic_load_explicit(&(v), memory_order_relaxed)
+#define AUDIO_STORE(v, x) atomic_store_explicit(&(v), (x), memory_order_relaxed)
+#define AUDIO_ADD(v, x) atomic_fetch_add_explicit(&(v), (x), memory_order_relaxed)
+#endif
+
 #ifndef AUDIO_TAG
 #define AUDIO_TAG "PhoenixAudio"
 #endif
 
 typedef struct {
-   uint64_t underruns;       /* pediu e nao tinha                        */
-   uint64_t overruns;        /* produziu e nao coube                     */
-   uint64_t quadros_prod;
-   uint64_t quadros_cons;
-   uint64_t amostras_perdidas;
-   double   soma_ocupacao;   /* para a media                             */
-   uint64_t leituras;
-   int64_t  t0_ms;
+   AUDIO_ATOMIC(uint64_t) underruns;          /* pediu e nao tinha                        */
+   AUDIO_ATOMIC(uint64_t) overruns;           /* produziu e nao coube                     */
+   AUDIO_ATOMIC(uint64_t) quadros_prod;
+   AUDIO_ATOMIC(uint64_t) quadros_cons;
+   AUDIO_ATOMIC(uint64_t) amostras_perdidas;
+   AUDIO_ATOMIC(uint64_t) soma_ocupacao_bp;   /* ocupacao em basis points (0..10000)      */
+   AUDIO_ATOMIC(uint64_t) leituras;
+   AUDIO_ATOMIC(int64_t)  t0_ms;
 } AudioSaude;
 
 static AudioSaude audio_saude;
@@ -52,55 +66,70 @@ static int64_t audio_saude_agora_ms(void) {
 }
 
 static void audio_saude_iniciar(void) {
-   AudioSaude z = {0};
-   audio_saude = z;
-   audio_saude.t0_ms = audio_saude_agora_ms();
+   AUDIO_STORE(audio_saude.underruns, 0);
+   AUDIO_STORE(audio_saude.overruns, 0);
+   AUDIO_STORE(audio_saude.quadros_prod, 0);
+   AUDIO_STORE(audio_saude.quadros_cons, 0);
+   AUDIO_STORE(audio_saude.amostras_perdidas, 0);
+   AUDIO_STORE(audio_saude.soma_ocupacao_bp, 0);
+   AUDIO_STORE(audio_saude.leituras, 0);
+   AUDIO_STORE(audio_saude.t0_ms, audio_saude_agora_ms());
 }
 
 /* Chame depois de escrever no ring buffer. `coube` e quantos quadros
  * realmente entraram -- se for menor que `quadros`, houve overrun. */
 static void audio_saude_produziu(uint32_t quadros, uint32_t coube,
                                  uint32_t ocupacao, uint32_t capacidade) {
-   audio_saude.quadros_prod += quadros;
+   AUDIO_ADD(audio_saude.quadros_prod, quadros);
    if (coube < quadros) {
-      audio_saude.overruns++;
-      audio_saude.amostras_perdidas += (quadros - coube);
+      AUDIO_ADD(audio_saude.overruns, 1);
+      AUDIO_ADD(audio_saude.amostras_perdidas, (uint64_t)(quadros - coube));
    }
    if (capacidade > 0) {
-      audio_saude.soma_ocupacao += (double)ocupacao / (double)capacidade;
-      audio_saude.leituras++;
+      uint64_t bp = ((uint64_t)ocupacao * 10000ULL) / (uint64_t)capacidade;
+      AUDIO_ADD(audio_saude.soma_ocupacao_bp, bp);
+      AUDIO_ADD(audio_saude.leituras, 1);
    }
 }
 
 /* Chame dentro do callback do Oboe, depois de ler do ring buffer. */
 static void audio_saude_consumiu(uint32_t pedidos, uint32_t entregues) {
-   audio_saude.quadros_cons += entregues;
-   if (entregues < pedidos) audio_saude.underruns++;
+   AUDIO_ADD(audio_saude.quadros_cons, entregues);
+   if (entregues < pedidos) AUDIO_ADD(audio_saude.underruns, 1);
 }
 
 static void audio_saude_relatar(void) {
-   int64_t agora = audio_saude_agora_ms();
-   double  seg   = (double)(agora - audio_saude.t0_ms) / 1000.0;
-   double  ocup  = audio_saude.leituras
-                 ? (audio_saude.soma_ocupacao / (double)audio_saude.leituras) * 100.0
+   int64_t  agora      = audio_saude_agora_ms();
+   int64_t  t0         = AUDIO_LOAD(audio_saude.t0_ms);
+   uint64_t underruns  = AUDIO_LOAD(audio_saude.underruns);
+   uint64_t overruns   = AUDIO_LOAD(audio_saude.overruns);
+   uint64_t prod       = AUDIO_LOAD(audio_saude.quadros_prod);
+   uint64_t cons       = AUDIO_LOAD(audio_saude.quadros_cons);
+   uint64_t perdidas   = AUDIO_LOAD(audio_saude.amostras_perdidas);
+   uint64_t soma_bp    = AUDIO_LOAD(audio_saude.soma_ocupacao_bp);
+   uint64_t leituras   = AUDIO_LOAD(audio_saude.leituras);
+
+   double  seg   = (double)(agora - t0) / 1000.0;
+   double  ocup  = leituras
+                 ? ((double)soma_bp / (double)leituras) / 100.0
                  : 0.0;
    /* Producao e consumo tem de andar juntos. Uma deriva que CRESCE com o
     * tempo e o sinal de que a taxa do nucleo e a do dispositivo nao batem --
     * o bug mais chato desta fase, porque soa bem nos primeiros segundos. */
-   int64_t deriva = (int64_t)audio_saude.quadros_prod - (int64_t)audio_saude.quadros_cons;
+   int64_t deriva = (int64_t)prod - (int64_t)cons;
 
    __android_log_print(
-      audio_saude.underruns || audio_saude.overruns ? ANDROID_LOG_WARN : ANDROID_LOG_INFO,
+      underruns || overruns ? ANDROID_LOG_WARN : ANDROID_LOG_INFO,
       AUDIO_TAG,
       "%.0fs | underruns=%llu overruns=%llu | ocupacao media %.0f%% | "
       "deriva %lld quadros (%.1f ms) | perdidas=%llu",
       seg,
-      (unsigned long long)audio_saude.underruns,
-      (unsigned long long)audio_saude.overruns,
+      (unsigned long long)underruns,
+      (unsigned long long)overruns,
       ocup,
       (long long)deriva,
       (double)deriva / 48.0,
-      (unsigned long long)audio_saude.amostras_perdidas);
+      (unsigned long long)perdidas);
 }
 
 #endif /* VERIFICADOR_AUDIO_H */

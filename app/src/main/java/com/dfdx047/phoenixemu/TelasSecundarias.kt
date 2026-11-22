@@ -1260,10 +1260,13 @@ fun TelaSobre() {
         // usuario, e some sozinho do APK de release.
         if (BuildConfig.DEBUG) {
             val contexto = LocalContext.current
+            val scopeTeste = rememberCoroutineScope()
             OutlinedButton(
                 onClick = {
                     audio.playClick()
-                    Emulador.abrirNucleoFalso(contexto, Preferencias.obter(contexto))
+                    scopeTeste.launch {
+                        Emulador.abrirNucleoFalso(contexto, Preferencias.obter(contexto))
+                    }
                 },
                 modifier = Modifier.fillMaxWidth(),
                 shape = RoundedCornerShape(12.dp)
@@ -1960,32 +1963,31 @@ fun TelaRetroAchievements(jogos: List<Jogo>) {
                     )
                 }
 
-                // e) Jogos do sistema escolhido
-                item {
-                    val sistemaAtual = Sistema.entries[sistemaIndice]
-                    val jogosFiltrados = jogosAbertos.filter { it.sistema == sistemaAtual }
-                    if (jogosFiltrados.isEmpty()) {
+                // e) Jogos do sistema escolhido (virtualizado)
+                val sistemaAtual = Sistema.entries[sistemaIndice]
+                val jogosFiltrados = jogosAbertos.filter { it.sistema == sistemaAtual }
+                if (jogosFiltrados.isEmpty()) {
+                    item(key = "ra_sem_jogos_sistema") {
                         Text(
                             stringResource(R.string.ra_sem_jogos_sistema),
                             style = MaterialTheme.typography.bodyMedium,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                             modifier = Modifier.padding(vertical = 16.dp)
                         )
-                    } else {
-                        jogosFiltrados.forEach { jogo ->
-                            val stats = resumos[jogo.id]
-                            CartaoConquistaJogo(
-                                jogo = jogo,
-                                totalConquistas = stats?.first ?: 0,
-                                desbloqueadas = stats?.second ?: 0,
-                                onClick = {
-                                    audio.playClick()
-                                    jogoSelecionadoId = jogo.id
-                                    scope.launch { lazyListState.animateScrollToItem(0) }
-                                }
-                            )
-                            Spacer(Modifier.height(12.dp))
-                        }
+                    }
+                } else {
+                    items(jogosFiltrados, key = { it.id }) { jogo ->
+                        val stats = resumos[jogo.id]
+                        CartaoConquistaJogo(
+                            jogo = jogo,
+                            totalConquistas = stats?.first ?: 0,
+                            desbloqueadas = stats?.second ?: 0,
+                            onClick = {
+                                audio.playClick()
+                                jogoSelecionadoId = jogo.id
+                                scope.launch { lazyListState.animateScrollToItem(0) }
+                            }
+                        )
                     }
                 }
 

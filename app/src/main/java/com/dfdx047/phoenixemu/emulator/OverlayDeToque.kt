@@ -66,7 +66,7 @@ fun OverlayDeToque(
 
     val skinId = config.skinId
     val ctxSkins = androidx.compose.ui.platform.LocalContext.current
-    androidx.compose.runtime.remember(ctxSkins) { Skins.garantir(ctxSkins); 0 }
+    androidx.compose.runtime.LaunchedEffect(ctxSkins) { Skins.garantirAsync(ctxSkins) }
     val skin = Skins.porId(skinId)
 
     Box(

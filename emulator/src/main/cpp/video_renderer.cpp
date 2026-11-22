@@ -24,11 +24,12 @@
 #define VLOGI(...) __android_log_print(ANDROID_LOG_INFO, VTAG, __VA_ARGS__)
 #define VLOGE(...) __android_log_print(ANDROID_LOG_ERROR, VTAG, __VA_ARGS__)
 
-extern int g_formato_pixel;
+extern std::atomic<int> g_formato_pixel;
 
 namespace {
 
-ANativeWindow *g_window = nullptr;
+std::atomic<ANativeWindow *> g_window{nullptr};
+std::atomic<uint64_t> g_window_gen{0};
 std::atomic<int> g_filtro{2};
 std::atomic<bool> g_gl_desligado{false};
 
@@ -43,6 +44,7 @@ struct EstadoGL {
     EGLSurface surface = EGL_NO_SURFACE;
     EGLContext contexto = EGL_NO_CONTEXT;
     ANativeWindow *janela = nullptr;
+    uint64_t geracaoJanela = 0;
     GLuint programa = 0;
     GLuint textura = 0;
     GLuint vao = 0;
@@ -178,9 +180,10 @@ void tocarGuarda() {
     (void) guarda;
 }
 
-bool iniciarGL(EstadoGL &g) {
-    if (!g_window) return false;
-    g.janela = g_window;
+bool iniciarGL(EstadoGL &g, ANativeWindow *window, uint64_t gen) {
+    if (!window) return false;
+    g.janela = window;
+    g.geracaoJanela = gen;
 
     g.display = eglGetDisplay(EGL_DEFAULT_DISPLAY);
     if (g.display == EGL_NO_DISPLAY || !eglInitialize(g.display, nullptr, nullptr)) {
@@ -241,24 +244,28 @@ bool iniciarGL(EstadoGL &g) {
 }
 
 // Retorna false SO se a inicializacao do GL falhar (aí cai na CPU).
-bool desenharGL(const void *dados, unsigned largura, unsigned altura, size_t pitch) {
+bool desenharGL(ANativeWindow *window, uint64_t gen, const void *dados, unsigned largura, unsigned altura, size_t pitch) {
     EstadoGL &g = g_gl;
     tocarGuarda();
 
-    if (g.pronto && g.janela != g_window) liberarGL(g);
+    if (g.pronto && (g.janela != window || g.geracaoJanela != gen)) liberarGL(g);
     if (!g.pronto) {
-        if (!iniciarGL(g)) {
+        if (!iniciarGL(g, window, gen)) {
             liberarGL(g);
             return false;
         }
     }
 
     EGLint w = 0, h = 0;
-    eglQuerySurface(g.display, g.surface, EGL_WIDTH, &w);
-    eglQuerySurface(g.display, g.surface, EGL_HEIGHT, &h);
+    if (!eglQuerySurface(g.display, g.surface, EGL_WIDTH, &w) ||
+        !eglQuerySurface(g.display, g.surface, EGL_HEIGHT, &h)) {
+        VLOGE("eglQuerySurface falhou: 0x%x, recriando GL", eglGetError());
+        liberarGL(g);
+        return true;
+    }
     if (w <= 0 || h <= 0) return true;
 
-    const bool xrgb = (g_formato_pixel == 1);
+    const bool xrgb = (g_formato_pixel.load(std::memory_order_relaxed) == 1);
     const int formato = xrgb ? 1 : 0;
     const unsigned bpp = xrgb ? 4 : 2;
 
@@ -303,29 +310,36 @@ bool desenharGL(const void *dados, unsigned largura, unsigned altura, size_t pit
     glUniform1i(g.uBgr, xrgb ? 1 : 0);
     glBindVertexArray(g.vao);
     glDrawArrays(GL_TRIANGLES, 0, 3);
-    eglSwapBuffers(g.display, g.surface);
+    if (!eglSwapBuffers(g.display, g.surface)) {
+        EGLint err = eglGetError();
+        VLOGE("eglSwapBuffers falhou: 0x%x", err);
+        if (err == EGL_CONTEXT_LOST || err == EGL_BAD_SURFACE || err == EGL_BAD_NATIVE_WINDOW) {
+            liberarGL(g);
+        }
+    }
     return true;
 }
 
-void desenharCPU(const void *dados, unsigned largura, unsigned altura, size_t pitch) {
-    int32_t win_format = (g_formato_pixel == 1) ? WINDOW_FORMAT_RGBX_8888 : WINDOW_FORMAT_RGB_565;
+void desenharCPU(ANativeWindow *window, const void *dados, unsigned largura, unsigned altura, size_t pitch) {
+    const int fmt = g_formato_pixel.load(std::memory_order_relaxed);
+    int32_t win_format = (fmt == 1) ? WINDOW_FORMAT_RGBX_8888 : WINDOW_FORMAT_RGB_565;
 
     if (largura != g_width || altura != g_height || win_format != g_format) {
-        ANativeWindow_setBuffersGeometry(g_window, largura, altura, win_format);
+        ANativeWindow_setBuffersGeometry(window, largura, altura, win_format);
         g_width = largura;
         g_height = altura;
         g_format = win_format;
     }
 
     ANativeWindow_Buffer buffer;
-    if (ANativeWindow_lock(g_window, &buffer, nullptr) < 0) {
+    if (ANativeWindow_lock(window, &buffer, nullptr) < 0) {
         return;
     }
 
     auto *src_bytes = static_cast<const uint8_t *>(dados);
     auto *dst_bytes = static_cast<uint8_t *>(buffer.bits);
 
-    if (g_formato_pixel == 1) {
+    if (fmt == 1) {
         for (unsigned y = 0; y < altura; ++y) {
             auto *src = reinterpret_cast<const uint32_t *>(src_bytes + y * pitch);
             auto *dst = reinterpret_cast<uint32_t *>(dst_bytes + y * buffer.stride * 4);
@@ -341,7 +355,7 @@ void desenharCPU(const void *dados, unsigned largura, unsigned altura, size_t pi
         }
     }
 
-    ANativeWindow_unlockAndPost(g_window);
+    ANativeWindow_unlockAndPost(window);
 }
 
 } // namespace
@@ -349,7 +363,8 @@ void desenharCPU(const void *dados, unsigned largura, unsigned altura, size_t pi
 extern "C" {
 
 void phoenix_video_inicializar(ANativeWindow *window) {
-    g_window = window;
+    g_window.store(window, std::memory_order_release);
+    g_window_gen.fetch_add(1, std::memory_order_acq_rel);
     g_width = 0;
     g_height = 0;
     g_format = -1;
@@ -364,19 +379,22 @@ void phoenix_video_definir_filtro(int modo) {
 
 void phoenix_video_desenhar_quadro(const void *dados, unsigned largura,
                                    unsigned altura, size_t pitch) {
-    if (!g_window || !dados) return;
+    ANativeWindow *window = g_window.load(std::memory_order_acquire);
+    if (!window || !dados) return;
+    uint64_t gen = g_window_gen.load(std::memory_order_acquire);
 
     if (!g_gl_desligado.load(std::memory_order_relaxed)) {
-        if (desenharGL(dados, largura, altura, pitch)) return;
+        if (desenharGL(window, gen, dados, largura, altura, pitch)) return;
         VLOGE("GLES indisponivel, usando copia pela CPU");
         g_gl_desligado.store(true, std::memory_order_relaxed);
         g_format = -1;
     }
-    desenharCPU(dados, largura, altura, pitch);
+    desenharCPU(window, dados, largura, altura, pitch);
 }
 
 void phoenix_video_finalizar() {
-    g_window = nullptr;
+    g_window.store(nullptr, std::memory_order_release);
+    g_window_gen.fetch_add(1, std::memory_order_acq_rel);
 }
 
 } // extern "C"

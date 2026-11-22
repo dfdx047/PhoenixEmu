@@ -573,8 +573,8 @@ class Preferencias private constructor(context: Context) {
     fun definirConqVolume(v: Float) = editar { it[floatPreferencesKey("conq_volume")] = v }
 
     companion object {
-        const val BGM_PADRAO = 0.25f
-        const val SFX_PADRAO = 0.50f
+        const val BGM_PADRAO = 0.20f
+        const val SFX_PADRAO = 0.35f
 
         @Volatile
         private var instancia: Preferencias? = null

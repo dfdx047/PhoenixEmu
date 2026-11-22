@@ -148,6 +148,7 @@ private fun VidroComDesfoque(
     val camadaDoVidro = rememberGraphicsLayer()
     var minhaPosicao by remember { mutableStateOf(Offset.Zero) }
     val raioPx = with(LocalDensity.current) { estilo.raioDeDesfoque.toPx() }
+    val efeitoDesfoque = remember(raioPx) { efeitoDeDesfoque(raioPx) }
     val tinta = if (forte) estilo.tintaForte else estilo.tinta
 
     Box(
@@ -157,7 +158,7 @@ private fun VidroComDesfoque(
             .clip(forma)
             .drawBehind {
                 if (fundo.gravado) {
-                    camadaDoVidro.renderEffect = efeitoDeDesfoque(raioPx)
+                    camadaDoVidro.renderEffect = efeitoDesfoque
                     camadaDoVidro.record(
                         IntSize(size.width.roundToInt(), size.height.roundToInt())
                     ) {

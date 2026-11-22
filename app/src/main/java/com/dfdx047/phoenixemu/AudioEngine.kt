@@ -18,6 +18,7 @@ import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.launch
 import java.util.concurrent.ConcurrentHashMap
+import kotlin.math.pow
 
 /**
  * SFX e BGM da interface.
@@ -123,7 +124,8 @@ class AudioEngine private constructor(context: Context) : DefaultLifecycleObserv
                 idGameBoot  = soundPool.load(app, R.raw.sfx_game_boot, 1)
                 val player = MediaPlayer.create(app, R.raw.bgm_menu)?.apply {
                     isLooping = true
-                    setVolume(bgmVolume, bgmVolume)
+                    val g = ganhoBgm(bgmVolume)
+                    setVolume(g, g)
                 }
                 bgmPlayer = player
                 escopo.launch { aplicarEstadoBgm() }
@@ -146,11 +148,18 @@ class AudioEngine private constructor(context: Context) : DefaultLifecycleObserv
                 sfxVolume = a.sfxVolume
                 bgmAtivo = a.bgmAtivo
                 bgmVolume = a.bgmVolume
-                bgmPlayer?.setVolume(a.bgmVolume, a.bgmVolume)
+                val g = ganhoBgm(a.bgmVolume)
+                bgmPlayer?.setVolume(g, g)
                 aplicarEstadoBgm()
             }
         }
     }
+
+    private fun ganhoBgm(vol: Float): Float =
+        (vol.coerceIn(0f, 1f).pow(CURVA_VOLUME) * TETO_BGM).coerceIn(0f, 1f)
+
+    private fun ganhoSfx(vol: Float, relativo: Float): Float =
+        (vol.coerceIn(0f, 1f).pow(CURVA_VOLUME) * TETO_SFX * relativo).coerceIn(0f, 1f)
 
     private data class Ajustes(
         val sfxAtivo: Boolean,
@@ -162,10 +171,10 @@ class AudioEngine private constructor(context: Context) : DefaultLifecycleObserv
     // ========================================================= SFX novos (TAREFA A1)
     // ajuste de ouvido — volumes relativos ao sfxVolume geral do motor
     private val VOLUME_RELATIVO = mapOf(
-        Som.CAPA_PASSA to 0.20f,
-        Som.TROCA_ABA  to 0.30f,
-        Som.BOOT       to 0.35f,
-        Som.GAME_BOOT  to 0.40f
+        Som.CAPA_PASSA to 0.45f,
+        Som.TROCA_ABA  to 0.60f,
+        Som.BOOT       to 0.75f,
+        Som.GAME_BOOT  to 0.80f
     )
 
     /** Tipo seguro para os novos efeitos sonoros. */
@@ -220,7 +229,8 @@ class AudioEngine private constructor(context: Context) : DefaultLifecycleObserv
             ultimoCapaPassa = agora
         }
         val volumeRelativo = VOLUME_RELATIVO[som] ?: 1f
-        soundPool.play(id, sfxVolume * volumeRelativo, sfxVolume * volumeRelativo, 1, 0, 1f)
+        val ganho = ganhoSfx(sfxVolume, volumeRelativo)
+        soundPool.play(id, ganho, ganho, 1, 0, 1f)
     }
 
     // ------------------------------------------------------ ciclo de vida
@@ -248,13 +258,14 @@ class AudioEngine private constructor(context: Context) : DefaultLifecycleObserv
 
     // ------------------------------------------------------------- tocar
 
-    fun playClick() = tocar(idClique)
+    fun playClick() = tocar(idClique, 0.65f)
 
-    fun playSwipe() = tocar(idSwipe)
+    fun playSwipe() = tocar(idSwipe, 0.55f)
 
-    private fun tocar(id: Int) {
+    private fun tocar(id: Int, relativo: Float = 1f) {
         if (!sfxAtivo || id == 0 || id !in carregados) return
-        soundPool.play(id, sfxVolume, sfxVolume, 1, 0, 1f)
+        val ganho = ganhoSfx(sfxVolume, relativo)
+        soundPool.play(id, ganho, ganho, 1, 0, 1f)
     }
 
     private fun aplicarEstadoBgm() {
@@ -295,6 +306,9 @@ class AudioEngine private constructor(context: Context) : DefaultLifecycleObserv
 
     companion object {
         private const val TAG = "AudioEngine"
+        private const val CURVA_VOLUME = 1.4f
+        private const val TETO_BGM = 0.55f
+        private const val TETO_SFX = 0.65f
 
         @Volatile
         private var instancia: AudioEngine? = null

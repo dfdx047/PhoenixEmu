@@ -137,10 +137,21 @@ object RomParser {
         Sistema.SNES -> "Nintendo - Super Nintendo Entertainment System"
     }
 
+    fun repoGithubDoSistema(sistema: Sistema): String = when (sistema) {
+        Sistema.NES -> "Nintendo_-_Nintendo_Entertainment_System"
+        Sistema.SNES -> "Nintendo_-_Super_Nintendo_Entertainment_System"
+    }
+
     fun urlCapaLibretro(nomeLibretro: String, sistema: Sistema): String {
         val pasta = Uri.encode(pastaDoSistema(sistema))
         val arquivo = Uri.encode(sanitizarParaLibretro(nomeLibretro))
         return "https://thumbnails.libretro.com/$pasta/Named_Boxarts/$arquivo.png"
+    }
+
+    fun urlCapaGithub(nomeLibretro: String, sistema: Sistema): String {
+        val repo = repoGithubDoSistema(sistema)
+        val arquivo = Uri.encode(sanitizarParaLibretro(nomeLibretro))
+        return "https://raw.githubusercontent.com/libretro-thumbnails/$repo/master/Named_Boxarts/$arquivo.png"
     }
 }
 
@@ -214,14 +225,16 @@ object RetroScraper {
     suspend fun buscarCapa(nomeBruto: String, sistema: Sistema): String? {
         val analise = RomParser.analisar(nomeBruto)
 
-        // Candidato 1: nome completo da DAT, com as tags de regiao.
-        // Candidato 2: nome limpo, para arquivos renomeados pelo usuario.
+        // Candidato 1: indice (Libretro ou GitHub fallback) com matching fuzzy/romanos.
+        urlPeloIndice(analise.nomeLimpo, sistema)?.let { return it }
+
+        // Candidatos diretos (Libretro + espelho oficial no GitHub): nome completo da DAT e nome limpo.
         val candidatos = linkedSetOf(
             RomParser.urlCapaLibretro(analise.nomeLibretro, sistema),
-            RomParser.urlCapaLibretro(analise.nomeLimpo, sistema)
+            RomParser.urlCapaGithub(analise.nomeLibretro, sistema),
+            RomParser.urlCapaLibretro(analise.nomeLimpo, sistema),
+            RomParser.urlCapaGithub(analise.nomeLimpo, sistema)
         )
-
-        urlPeloIndice(analise.nomeLimpo, sistema)?.let { return it }
 
         for (url in candidatos) {
             if (existe(url)) return url
@@ -232,26 +245,40 @@ object RetroScraper {
     }
 
     private val indices = java.util.concurrent.ConcurrentHashMap<Sistema, Map<String, List<String>>>()
+    private val basesDeIndice = java.util.concurrent.ConcurrentHashMap<Sistema, String>()
     private val falhasDeIndice = java.util.concurrent.ConcurrentHashMap<Sistema, Long>()
     private val travaIndice = kotlinx.coroutines.sync.Mutex()
 
+    private val rxParenteses = Regex("\\([^)]*\\)")
+    private val rxColchetes = Regex("\\[[^\\]]*\\]")
+    private val rxTheFim = Regex(",\\s*the\\s*$")
+    private val rxTheInicio = Regex("^\\s*the\\s+")
+    private val rxAnd = Regex("\\band\\b")
+    private val rxRomanos = Regex("\\b(viii|vii|iii|ii|iv|vi|ix|v)\\b")
+    private val rxNaoAlfanum = Regex("[^a-z0-9]")
+    private val rxHrefPng = Regex("href=\"([^\"]+?)\\.png\"")
+    private val rxRuins = Regex("\\((beta|proto|demo|sample|unl|pirate|alt|rev)")
+
     private fun chaveDeNome(nome: String): String {
         var t = nome.lowercase()
-        t = t.replace(Regex("\\([^)]*\\)"), " ").replace(Regex("\\[[^\\]]*\\]"), " ")
-        t = t.replace(Regex(",\\s*the\\s*$"), "").replace(Regex("^\\s*the\\s+"), "")
-        t = t.replace(Regex("\\band\\b"), " ")
-        t = t.replace(Regex("\\b(viii|vii|iii|ii|iv|vi|ix|v)\\b")) { m ->
+        t = t.replace(rxParenteses, " ").replace(rxColchetes, " ")
+        t = t.replace(rxTheFim, "").replace(rxTheInicio, "")
+        t = t.replace(rxAnd, " ")
+        t = t.replace(rxRomanos) { m ->
             when (m.value) {
                 "ii" -> "2"; "iii" -> "3"; "iv" -> "4"; "v" -> "5"
                 "vi" -> "6"; "vii" -> "7"; "viii" -> "8"; "ix" -> "9"
                 else -> m.value
             }
         }
-        return t.replace(Regex("[^a-z0-9]"), "")
+        return t.replace(rxNaoAlfanum, "")
     }
 
     private fun pastaLibretro(sistema: Sistema): String =
         RomParser.urlCapaLibretro("x", sistema).substringBeforeLast("/") + "/"
+
+    private fun pastaGithub(sistema: Sistema): String =
+        RomParser.urlCapaGithub("x", sistema).substringBeforeLast("/") + "/"
 
     private suspend fun indiceDe(sistema: Sistema): Map<String, List<String>> {
         indices[sistema]?.let { return it }
@@ -262,24 +289,80 @@ object RetroScraper {
             val falhou = falhasDeIndice[sistema]
             if (falhou != null && agora - falhou < 30_000) return emptyMap()
             val mapa = HashMap<String, MutableList<String>>()
+            var baseUsada = pastaLibretro(sistema)
             try {
                 val cliente = http.newBuilder()
                     .callTimeout(60, TimeUnit.SECONDS)
                     .readTimeout(30, TimeUnit.SECONDS)
                     .build()
                 val html = withContext(Dispatchers.IO) {
-                    cliente.newCall(Request.Builder().url(pastaLibretro(sistema)).build())
+                    cliente.newCall(Request.Builder().url(baseUsada).build())
                         .execute().use { r -> if (r.isSuccessful) (r.body?.string() ?: "") else "" }
                 }
-                Regex("href=\"([^\"]+?)\\.png\"").findAll(html).forEach { m ->
+                rxHrefPng.findAll(html).forEach { m ->
                     val arq = Uri.decode(m.groupValues[1])
                     mapa.getOrPut(chaveDeNome(arq)) { mutableListOf() }.add(arq)
+                }
+
+                // Fallback oficial: se thumbnails.libretro.com estiver fora/404, busca o indice no GitHub.
+                if (mapa.isEmpty()) {
+                    val repo = RomParser.repoGithubDoSistema(sistema)
+                    val rootJson = withContext(Dispatchers.IO) {
+                        val req = Request.Builder()
+                            .url("https://api.github.com/repos/libretro-thumbnails/$repo/git/trees/master")
+                            .header("User-Agent", "PhoenixEmu")
+                            .build()
+                        cliente.newCall(req).execute().use { r -> if (r.isSuccessful) (r.body?.string() ?: "") else "" }
+                    }
+                    if (rootJson.isNotEmpty()) {
+                        val rootObj = org.json.JSONObject(rootJson)
+                        val tree = rootObj.optJSONArray("tree")
+                        var boxartsUrl: String? = null
+                        if (tree != null) {
+                            for (i in 0 until tree.length()) {
+                                val item = tree.optJSONObject(i) ?: continue
+                                if (item.optString("path") == "Named_Boxarts") {
+                                    boxartsUrl = item.optString("url")
+                                    break
+                                }
+                            }
+                        }
+                        if (!boxartsUrl.isNullOrBlank()) {
+                            val boxJson = withContext(Dispatchers.IO) {
+                                val req = Request.Builder()
+                                    .url(boxartsUrl)
+                                    .header("User-Agent", "PhoenixEmu")
+                                    .build()
+                                cliente.newCall(req).execute().use { r -> if (r.isSuccessful) (r.body?.string() ?: "") else "" }
+                            }
+                            if (boxJson.isNotEmpty()) {
+                                val boxTree = org.json.JSONObject(boxJson).optJSONArray("tree")
+                                if (boxTree != null) {
+                                    for (i in 0 until boxTree.length()) {
+                                        val path = boxTree.optJSONObject(i)?.optString("path") ?: continue
+                                        if (path.endsWith(".png", ignoreCase = true)) {
+                                            val arq = path.dropLast(4)
+                                            mapa.getOrPut(chaveDeNome(arq)) { mutableListOf() }.add(arq)
+                                        }
+                                    }
+                                }
+                                if (mapa.isNotEmpty()) {
+                                    baseUsada = pastaGithub(sistema)
+                                }
+                            }
+                        }
+                    }
                 }
             } catch (e: Exception) {
                 Log.w(TAG, "Indice do Libretro falhou", e)
             }
-            if (mapa.isNotEmpty()) indices[sistema] = mapa else falhasDeIndice[sistema] = agora
-            Log.w(TAG, "Indice do Libretro $sistema: ${mapa.size} jogos")
+            if (mapa.isNotEmpty()) {
+                indices[sistema] = mapa
+                basesDeIndice[sistema] = baseUsada
+            } else {
+                falhasDeIndice[sistema] = agora
+            }
+            Log.w(TAG, "Indice de capas $sistema: ${mapa.size} jogos (base=$baseUsada)")
             return mapa
         } finally {
             travaIndice.unlock()
@@ -319,7 +402,6 @@ object RetroScraper {
         val indice = indiceDe(sistema)
         val chave = chaveDeNome(nome)
         val lista = indice[chave] ?: achaAproximado(indice, chave) ?: return null
-        val ruins = Regex("\\((beta|proto|demo|sample|unl|pirate|alt|rev)")
         fun nota(a: String): Int {
             val l = a.lowercase()
             var n = when {
@@ -328,11 +410,12 @@ object RetroScraper {
                 "(europe" in l -> 2
                 else -> 3
             }
-            if (ruins.containsMatchIn(l)) n += 10
+            if (rxRuins.containsMatchIn(l)) n += 10
             return n
         }
         val melhor = lista.minByOrNull { nota(it) } ?: return null
-        return pastaLibretro(sistema) + Uri.encode(melhor) + ".png"
+        val base = basesDeIndice[sistema] ?: pastaLibretro(sistema)
+        return base + Uri.encode(melhor) + ".png"
     }
 
     private suspend fun existe(url: String): Boolean = withContext(Dispatchers.IO) {

@@ -607,30 +607,36 @@ private fun CabecalhoPausa(
     val ctx = LocalContext.current
     val nomeAmigavel = rememberNomeAmigavel(nomeDoJogo)
 
-    // Carregar capa com BitmapFactory (segundo plano, inSampleSize)
-    val bitmapCapa = remember(capaLocalPath) {
-        var bmp: android.graphics.Bitmap? = null
-        if (!capaLocalPath.isNullOrBlank()) {
-            try {
-                val file = java.io.File(capaLocalPath)
-                if (file.exists()) {
-                    val opts = android.graphics.BitmapFactory.Options().apply { inJustDecodeBounds = true }
-                    android.graphics.BitmapFactory.decodeFile(capaLocalPath, opts)
-                    val largura = opts.outWidth
-                    val amostra = if (largura > 200) largura / 200 else 1
-                    var realAmostra = 1
-                    while (realAmostra * 2 <= amostra) realAmostra *= 2
-                    opts.inSampleSize = realAmostra
-                    opts.inJustDecodeBounds = false
-                    opts.inPreferredConfig = android.graphics.Bitmap.Config.ARGB_8888
-                    bmp = android.graphics.BitmapFactory.decodeFile(capaLocalPath, opts)
+    // Carregar capa com BitmapFactory em Dispatchers.IO (com inSampleSize)
+    val bitmapCapaState = androidx.compose.runtime.produceState<android.graphics.Bitmap?>(
+        initialValue = null,
+        key1 = capaLocalPath
+    ) {
+        value = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+            var bmp: android.graphics.Bitmap? = null
+            if (!capaLocalPath.isNullOrBlank()) {
+                try {
+                    val file = java.io.File(capaLocalPath)
+                    if (file.exists()) {
+                        val opts = android.graphics.BitmapFactory.Options().apply { inJustDecodeBounds = true }
+                        android.graphics.BitmapFactory.decodeFile(capaLocalPath, opts)
+                        val largura = opts.outWidth
+                        val amostra = if (largura > 200) largura / 200 else 1
+                        var realAmostra = 1
+                        while (realAmostra * 2 <= amostra) realAmostra *= 2
+                        opts.inSampleSize = realAmostra
+                        opts.inJustDecodeBounds = false
+                        opts.inPreferredConfig = android.graphics.Bitmap.Config.ARGB_8888
+                        bmp = android.graphics.BitmapFactory.decodeFile(capaLocalPath, opts)
+                    }
+                } catch (_: Exception) {
+                    bmp = null
                 }
-            } catch (_: Exception) {
-                bmp = null
             }
+            bmp
         }
-        bmp
     }
+    val bitmapCapa = bitmapCapaState.value
 
     // Tempo total = tempo acumulado antes da sessao
     val tempoTotalMsFinal = tempoJogadoMs

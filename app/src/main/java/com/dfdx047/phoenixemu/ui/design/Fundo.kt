@@ -12,7 +12,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.draw.drawWithCache
 import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.BlurEffect
@@ -108,31 +108,27 @@ fun Modifier.fonteDeFundo(estado: EstadoDeFundo?, ativo: Boolean = true): Modifi
 @Composable
 fun FundoDoTema(modifier: Modifier = Modifier) {
     val esquema = MaterialTheme.colorScheme
+    val corPrimaria = esquema.primary.copy(alpha = 0.16f)
+    val corTerciaria = esquema.tertiary.copy(alpha = 0.12f)
     Box(
         modifier
             .fillMaxSize()
             .background(esquema.background)
-            .drawBehind {
-                drawRect(
-                    Brush.radialGradient(
-                        colors = listOf(
-                            esquema.primary.copy(alpha = 0.16f),
-                            Color.Transparent
-                        ),
-                        center = Offset(size.width * 0.15f, size.height * 0.08f),
-                        radius = size.maxDimension * 0.75f
-                    )
+            .drawWithCache {
+                val halo1 = Brush.radialGradient(
+                    colors = listOf(corPrimaria, Color.Transparent),
+                    center = Offset(size.width * 0.15f, size.height * 0.08f),
+                    radius = size.maxDimension * 0.75f
                 )
-                drawRect(
-                    Brush.radialGradient(
-                        colors = listOf(
-                            esquema.tertiary.copy(alpha = 0.12f),
-                            Color.Transparent
-                        ),
-                        center = Offset(size.width * 0.92f, size.height * 0.95f),
-                        radius = size.maxDimension * 0.65f
-                    )
+                val halo2 = Brush.radialGradient(
+                    colors = listOf(corTerciaria, Color.Transparent),
+                    center = Offset(size.width * 0.92f, size.height * 0.95f),
+                    radius = size.maxDimension * 0.65f
                 )
+                onDrawBehind {
+                    drawRect(halo1)
+                    drawRect(halo2)
+                }
             }
     )
 }

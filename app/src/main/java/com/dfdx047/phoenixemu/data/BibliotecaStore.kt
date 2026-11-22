@@ -436,16 +436,12 @@ class BibliotecaStore private constructor(context: Context) {
     suspend fun registrarAbertura(id: String) {
         val agora = System.currentTimeMillis()
         dao.registrarAbertura(id, agora)
-        // TEMPORARIO: remover
-        Log.i("PhoenixHist", "abertura id=$id hora=$agora")
     }
 
     /** Soma minutos de sessão ao tempo total do jogo. */
     suspend fun somarTempo(id: String, minutos: Int) {
         if (minutos <= 0) return
         dao.somarTempo(id, minutos)
-        // TEMPORARIO: remover
-        Log.i("PhoenixHist", "sessao id=$id ms=${minutos * 60_000} min=$minutos")
     }
 
     companion object {

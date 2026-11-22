@@ -291,6 +291,77 @@ void phoenix_ra_resetou() {
     if (g_ativo.load(std::memory_order_relaxed) && g_client != nullptr) rc_client_reset(g_client);
 }
 
+bool phoenix_ra_serializar_estado(std::vector<uint8_t> &saida) {
+    saida.clear();
+    if (!g_ativo.load(std::memory_order_acquire)) return false;
+    std::lock_guard<std::recursive_mutex> l(g_ra_mtx);
+    if (!g_ativo.load(std::memory_order_relaxed) || g_client == nullptr || g_adiar.load(std::memory_order_acquire)) {
+        return false;
+    }
+    size_t sz = rc_client_progress_size(g_client);
+    if (sz == 0) return false;
+    saida.resize(sz);
+    if (rc_client_serialize_progress_sized(g_client, saida.data(), sz) != RC_OK) {
+        saida.clear();
+        return false;
+    }
+    return true;
+}
+
+void phoenix_ra_desserializar_estado(const uint8_t *dados, size_t tamanho) {
+    if (!g_ativo.load(std::memory_order_acquire)) return;
+    std::lock_guard<std::recursive_mutex> l(g_ra_mtx);
+    if (!g_ativo.load(std::memory_order_relaxed) || g_client == nullptr || g_adiar.load(std::memory_order_acquire)) {
+        return;
+    }
+    if (dados != nullptr && tamanho > 0) {
+        if (rc_client_deserialize_progress_sized(g_client, dados, tamanho) == RC_OK) {
+            return;
+        }
+    }
+    rc_client_reset(g_client);
+}
+
+void phoenix_ra_salvar_arquivo(const std::string &caminho) {
+    if (caminho.empty()) return;
+    std::vector<uint8_t> buf;
+    if (!phoenix_ra_serializar_estado(buf) || buf.empty()) return;
+    std::string tmp = caminho + ".tmp";
+    FILE *f = fopen(tmp.c_str(), "wb");
+    if (!f) return;
+    size_t escritos = fwrite(buf.data(), 1, buf.size(), f);
+    int fechado = fclose(f);
+    if (escritos != buf.size() || fechado != 0 || rename(tmp.c_str(), caminho.c_str()) != 0) {
+        remove(tmp.c_str());
+    }
+}
+
+void phoenix_ra_carregar_arquivo(const std::string &caminho) {
+    if (!g_ativo.load(std::memory_order_acquire)) return;
+    if (caminho.empty()) {
+        phoenix_ra_resetou();
+        return;
+    }
+    FILE *f = fopen(caminho.c_str(), "rb");
+    if (!f) {
+        phoenix_ra_resetou();
+        return;
+    }
+    long pos = (fseek(f, 0, SEEK_END) == 0) ? ftell(f) : -1L;
+    if (pos > 0 && pos <= 4 * 1024 * 1024 && fseek(f, 0, SEEK_SET) == 0) {
+        std::vector<uint8_t> buf(static_cast<size_t>(pos));
+        size_t lidos = fread(buf.data(), 1, buf.size(), f);
+        fclose(f);
+        if (lidos == buf.size()) {
+            phoenix_ra_desserializar_estado(buf.data(), buf.size());
+            return;
+        }
+    } else {
+        fclose(f);
+    }
+    phoenix_ra_resetou();
+}
+
 bool phoenix_ra_iniciar(JNIEnv *env, phoenix::LibretroCore *nucleo, const std::string &usuario,
                         const std::string &token, const std::string &hash, int consoleId, bool hardcore) {
     std::lock_guard<std::recursive_mutex> l(g_ra_mtx);

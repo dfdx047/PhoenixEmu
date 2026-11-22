@@ -46,6 +46,7 @@ import androidx.compose.foundation.layout.statusBars
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -449,12 +450,17 @@ fun PhoenixApp(prefs: Preferencias, biblioteca: BibliotecaStore, trocas: kotlinx
         jogoParaJogar = null
         audio.tocar(AudioEngine.Som.GAME_BOOT)
         // Registrar abertura e salvar sessao pendente ANTES de abrir o emulador.
-        lifecycleOwner.lifecycleScope.launch { biblioteca.registrarAbertura(jogo.id) }
+        // Roda no lifecycleScope para nao ser cancelado quando jogoParaJogar volta para null.
+        lifecycleOwner.lifecycleScope.launch {
+            biblioteca.registrarAbertura(jogo.id)
+        }
         sessaoPrefs.edit()
             .putString("jogo_id", jogo.id)
             .putLong("inicio_ms", System.currentTimeMillis())
             .apply()
-        Emulador.abrirJogo(context, prefs, jogo)
+        lifecycleOwner.lifecycleScope.launch {
+            Emulador.abrirJogo(context, prefs, jogo)
+        }
     }
 
     // ------------------------------------------------- filtro e ordenacao
@@ -473,8 +479,8 @@ fun PhoenixApp(prefs: Preferencias, biblioteca: BibliotecaStore, trocas: kotlinx
     // Altura do chrome do topo: barra de busca + linha de sistema/filtros.
     // E o mesmo numero usado como recuo superior da lista, entao os dois
     // nunca saem de sincronia.
-    val TOPO_XMB = 72.dp
-    val BASE_XMB = 100.dp
+    val TOPO_XMB = 60.dp
+    val BASE_XMB = 72.dp
 
     val xmbAtivo = modoVisual == ModoVisual.XMB && secao == Secao.BIBLIOTECA
     val tipoDeControle = lembrarTipoDeControle()
@@ -1037,21 +1043,17 @@ private fun TituloFlutuante(texto: String) {
 }
 
 /**
- * Capa inteira (sem cortar) sobre um fundo desfocado da propria capa.
- * Capas de SNES sao mais largas que o cartao; com Crop perdiam as laterais.
+ * Capa inteira (sem cortar) sobre um fundo sutil em gradiente.
+ * Evita duplicar decodificacao de imagem e RenderEffect blur por cartao durante a rolagem.
  */
 @Composable
 private fun CapaInteira(model: Any?, descricao: String, modifier: Modifier = Modifier) {
-    Box(modifier) {
-        AsyncImage(
-            model = model,
-            contentDescription = null,
-            contentScale = ContentScale.Crop,
-            modifier = Modifier
-                .fillMaxSize()
-                .blur(24.dp)
-                .alpha(0.55f)
-        )
+    val corFundoTopo = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.45f)
+    val corFundoBase = Color.Black.copy(alpha = 0.42f)
+    val pincelFundo = remember(corFundoTopo, corFundoBase) {
+        Brush.verticalGradient(listOf(corFundoTopo, corFundoBase))
+    }
+    Box(modifier.background(pincelFundo)) {
         AsyncImage(
             model = model,
             contentDescription = descricao,
@@ -1337,6 +1339,8 @@ fun TelaJogos(
                     }
                 }
             } else {
+                val topoXmb = recuoSuperior + WindowInsets.statusBars.asPaddingValues().calculateTopPadding() + 4.dp
+                val baseXmb = recuoInferior + WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
                 BoxWithConstraints {
                     CarrosselXmb(
                         jogos = jogos,
@@ -1345,8 +1349,8 @@ fun TelaJogos(
                         onSelecionar = onSelecionar,
                         onAbrir = onAbrir,
                         onOpcoes = onOpcoes,
-                        paddingTopDp = recuoSuperior,
-                        paddingBottomDp = recuoInferior
+                        paddingTopDp = topoXmb,
+                        paddingBottomDp = baseXmb
                     )
                 }
             }
@@ -1364,7 +1368,7 @@ fun TelaJogos(
  */
 
 // ajuste fino do tamanho das capas
-private const val FATOR_CAPA_XMB = 0.9f
+private const val FATOR_CAPA_XMB = 0.96f
 
 @Composable
 private fun CarrosselXmb(
@@ -1414,9 +1418,9 @@ private fun CarrosselXmb(
         // Formato unico para o carrossel inteiro (nada muda de tamanho ao carregar capas).
         // SNES dominante: caixas largas (capas do SNES sao deitadas); senao, em pe.
         val larga = remember(jogos) { jogos.count { it.sistema == Sistema.SNES } * 2 > jogos.size }
-        val alturaBase = ((alturaDisponivelDp - 8f) * FATOR_CAPA_XMB).coerceIn(120f, 560f)
-        val larguraBase = (alturaBase * 0.78f).coerceAtMost(larguraDaTelaDp * 0.42f)
-        val larguraDaCapa = if (larga) minOf(larguraBase * 1.5f, larguraDaTelaDp * 0.46f) else larguraBase
+        val alturaBase = ((alturaDisponivelDp - 4f) * FATOR_CAPA_XMB).coerceIn(120f, 560f)
+        val larguraBase = (alturaBase * 0.78f).coerceAtMost(larguraDaTelaDp * 0.48f)
+        val larguraDaCapa = if (larga) minOf(larguraBase * 1.5f, larguraDaTelaDp * 0.52f) else larguraBase
         val alturaDaCapa = if (larga) larguraDaCapa / 1.4f else minOf(alturaBase, larguraDaCapa / 0.72f)
 
         val folgaLateral = (maxWidth.value - larguraDaCapa) / 2f
@@ -1512,23 +1516,6 @@ private fun CarrosselXmb(
                         )
                     }
                 }
-            }
-        }
-
-        // TEMPORARIO: remover — log do desvio do selecionado
-        LaunchedEffect(estadoCarrossel, indiceSelecionado) {
-            val dens = densidade
-            snapshotFlow {
-                val vi = estadoCarrossel.layoutInfo.visibleItemsInfo
-                val selIndex = indiceSelecionado.coerceIn(0, jogos.lastIndex)
-                val selItem = vi.find { it.index == selIndex }
-                val centroItem = selItem?.let { it.offset + it.size / 2f } ?: 0f
-                val centroViewport = (estadoCarrossel.layoutInfo.viewportStartOffset + estadoCarrossel.layoutInfo.viewportEndOffset) / 2f
-                with(dens) {
-                    (centroItem - centroViewport).toDp()
-                }
-            }.distinctUntilChanged().map { it.value.roundToInt() }.distinctUntilChanged().collect { desvioDp ->
-                Log.i("PhoenixUi", "xmb desvioSelecionado=$desvioDp dp")
             }
         }
     }

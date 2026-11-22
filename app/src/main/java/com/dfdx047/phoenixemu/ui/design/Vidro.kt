@@ -41,11 +41,9 @@ data class EstiloDeVidro(
     val corDoFoco: Color,
     val corDoConteudo: Color
 ) {
-    val pincelDaBorda: Brush
-        get() = Brush.verticalGradient(listOf(bordaSuperior, bordaInferior))
+    val pincelDaBorda: Brush = Brush.verticalGradient(listOf(bordaSuperior, bordaInferior))
 
-    val pincelDoBrilho: Brush
-        get() = Brush.verticalGradient(listOf(brilhoSuperior, Color.Transparent))
+    val pincelDoBrilho: Brush = Brush.verticalGradient(listOf(brilhoSuperior, Color.Transparent))
 }
 
 val LocalVidro = staticCompositionLocalOf<EstiloDeVidro> {
